@@ -1,0 +1,15 @@
+com/stown/ingestion/repository/MessageRepository.class
+com/stown/ingestion/domain/MessageDocument.class
+com/stown/ingestion/domain/AttachmentMetadata$AttachmentMetadataBuilder.class
+com/stown/ingestion/api/IngestionRequest.class
+com/stown/ingestion/IngestionApplication.class
+com/stown/ingestion/messaging/IngestionRequestedEvent.class
+com/stown/ingestion/service/HashService.class
+com/stown/ingestion/messaging/MessageIngestedEvent$MessageIngestedEventBuilder.class
+com/stown/ingestion/domain/MessageDocument$MessageDocumentBuilder.class
+com/stown/ingestion/config/KafkaConfig.class
+com/stown/ingestion/service/IngestionService.class
+com/stown/ingestion/messaging/MessageIngestedEvent.class
+com/stown/ingestion/messaging/IngestionRequestedEvent$IngestionRequestedEventBuilder.class
+com/stown/ingestion/api/IngestionController.class
+com/stown/ingestion/domain/AttachmentMetadata.class

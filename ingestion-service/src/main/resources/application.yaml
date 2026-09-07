@@ -1,0 +1,46 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: ingestion-service
+
+
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/legal_discovery
+      database: legal_discovery
+
+  kafka:
+    bootstrap-servers: localhost:9092
+
+    consumer:
+      group-id: ingestion-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        spring.json.trusted.packages: "com.stown.ingestion"
+
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        enable.idempotence: true
+        acks: all
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+app:
+  storage:
+    endpoint: http://localhost:9000
+    access-key: minioadmin
+    secret-key: minioadmin
+    bucket: legal-attachments
+    region: us-east-1
+
+  retention:
+    default-days: 365

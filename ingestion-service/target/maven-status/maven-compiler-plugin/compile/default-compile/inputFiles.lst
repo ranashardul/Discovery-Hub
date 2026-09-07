@@ -1,0 +1,11 @@
+/Users/maitreya.chavan/Project/Discovery-Hub/ingestion-service/src/main/java/com/stown/ingestion/IngestionApplication.java
+/Users/maitreya.chavan/Project/Discovery-Hub/ingestion-service/src/main/java/com/stown/ingestion/api/IngestionController.java
+/Users/maitreya.chavan/Project/Discovery-Hub/ingestion-service/src/main/java/com/stown/ingestion/api/IngestionRequest.java
+/Users/maitreya.chavan/Project/Discovery-Hub/ingestion-service/src/main/java/com/stown/ingestion/config/KafkaConfig.java
+/Users/maitreya.chavan/Project/Discovery-Hub/ingestion-service/src/main/java/com/stown/ingestion/domain/AttachmentMetadata.java
+/Users/maitreya.chavan/Project/Discovery-Hub/ingestion-service/src/main/java/com/stown/ingestion/domain/MessageDocument.java
+/Users/maitreya.chavan/Project/Discovery-Hub/ingestion-service/src/main/java/com/stown/ingestion/messaging/IngestionRequestedEvent.java
+/Users/maitreya.chavan/Project/Discovery-Hub/ingestion-service/src/main/java/com/stown/ingestion/messaging/MessageIngestedEvent.java
+/Users/maitreya.chavan/Project/Discovery-Hub/ingestion-service/src/main/java/com/stown/ingestion/repository/MessageRepository.java
+/Users/maitreya.chavan/Project/Discovery-Hub/ingestion-service/src/main/java/com/stown/ingestion/service/HashService.java
+/Users/maitreya.chavan/Project/Discovery-Hub/ingestion-service/src/main/java/com/stown/ingestion/service/IngestionService.java
