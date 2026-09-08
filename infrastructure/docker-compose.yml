@@ -169,8 +169,58 @@ services:
       retries: 10
       start_period: 40s
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: stown-postgres
+    ports:
+      # Host port 5433 to avoid clashing with any locally-installed PostgreSQL
+      # or standalone containers already bound to 5432. Services inside the
+      # compose network connect via postgres:5432, so only the host mapping
+      # changes.
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-case_hold}
+      POSTGRES_USER: ${POSTGRES_USER:-casehold}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-casehold}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-casehold} -d ${POSTGRES_DB:-case_hold}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  case-hold-service:
+    build:
+      context: ../case-hold-service
+      dockerfile: Dockerfile
+    image: stown/case-hold-service:latest
+    container_name: stown-case-hold-service
+    ports:
+      - "${CASE_HOLD_PORT:-8083}:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      POSTGRES_URI: ${POSTGRES_URI:-jdbc:postgresql://postgres:5432/${POSTGRES_DB:-case_hold}}
+      POSTGRES_USER: ${POSTGRES_USER:-casehold}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-casehold}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:19092}
+      CASE_HOLD_TOPIC: ${CASE_HOLD_TOPIC:-case-hold.events}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8083/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
 volumes:
   mongo_data:
   minio_data:
   elasticsearch_data:
   kafka_data:
+  postgres_data:

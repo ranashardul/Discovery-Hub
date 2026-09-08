@@ -1,0 +1,65 @@
+server:
+  port: ${CASE_HOLD_PORT:8083}
+
+spring:
+  application:
+    name: case-hold-service
+
+  datasource:
+    url: ${POSTGRES_URI:jdbc:postgresql://localhost:5432/case_hold}
+    username: ${POSTGRES_USER:casehold}
+    password: ${POSTGRES_PASSWORD:casehold}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema; Hibernate must never create or alter it.
+      ddl-auto: none
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+    producer:
+      # The outbox stores pre-serialised JSON, so values travel as raw strings.
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 5
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 30000
+        request.timeout.ms: 10000
+        max.block.ms: 10000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+app:
+  case-hold:
+    topic: ${CASE_HOLD_TOPIC:case-hold.events}
+    max-page-size: ${CASE_HOLD_MAX_PAGE_SIZE:100}
+    outbox:
+      initial-delay-ms: ${CASE_HOLD_OUTBOX_INITIAL_DELAY_MS:15000}
+      interval-ms: ${CASE_HOLD_OUTBOX_INTERVAL_MS:5000}
+      batch-size: ${CASE_HOLD_OUTBOX_BATCH_SIZE:100}
+
+logging:
+  level:
+    com.stown.casehold: ${LOG_LEVEL:INFO}

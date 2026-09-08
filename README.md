@@ -29,6 +29,15 @@ Corpus generator / Angular UI
               |
               v
         Elasticsearch  :9200
+              |
+              v
+   Case & Hold Service :8083      cases, legal holds, communication references
+              |
+              v
+        PostgreSQL  :5432
+              |
+              v
+   Kafka: case-hold.events         CASE_CREATED, HOLD_CREATED, HOLD_RELEASED ...
 ```
 
 ## Repository Layout
@@ -37,6 +46,7 @@ Corpus generator / Angular UI
   ---------------------- ---------------------------------------------
   `ingestion-service/`   Ingestion API and worker (Java 21, Boot 4)
   `search-service/`      Elasticsearch projection and search API
+  `case-hold-service/`   Cases, legal holds, communication references
   `corpus-generator/`    Python synthetic-corpus generator
   `infrastructure/`      Docker Compose stack
   `.env.example`         Every configuration variable, with placeholders
@@ -60,6 +70,7 @@ Verify:
 ``` bash
 curl http://localhost:8081/actuator/health
 curl http://localhost:8082/actuator/health
+curl http://localhost:8083/actuator/health
 ```
 
 ## Services and Ports
@@ -72,8 +83,10 @@ curl http://localhost:8082/actuator/health
   MinIO Console       `stown-minio`                `9001`
   Kafka UI            `stown-kafka-ui`             `8085`
   Elasticsearch       `stown-elasticsearch`        `9200`
+  PostgreSQL          `stown-postgres`              `5432`
   Ingestion Service   `stown-ingestion-service`    `8081`
   Search Service      `stown-search-service`       `8082`
+  Case & Hold Service `stown-case-hold-service`    `8083`
 
 Kafka advertises `localhost:9092` for host clients and `kafka:19092`
 for containers on the compose network. Use container names, never
@@ -134,6 +147,30 @@ curl "http://localhost:8082/api/search?q=budget%20review&size=3"
 curl "http://localhost:8082/api/search/stats"
 ```
 
+Case & Hold:
+
+``` bash
+# Create a case
+curl -X POST http://localhost:8083/api/v1/cases \
+  -H 'Content-Type: application/json' \
+  -d '{"caseName":"Acquisition Investigation","description":"Review comms","createdBy":"admin"}'
+
+# Add communications to a case (use the caseId from the response above)
+curl -X POST http://localhost:8083/api/v1/cases/<caseId>/communications \
+  -H 'Content-Type: application/json' \
+  -d '{"communications":[{"communicationId":"msg-1","communicationType":"EMAIL"}],"addedBy":"admin"}'
+
+# Place a hold on the case
+curl -X POST http://localhost:8083/api/v1/cases/<caseId>/holds \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Preserve key emails","reason":"Legal hold","createdBy":"admin","communications":[{"communicationId":"msg-1","communicationType":"EMAIL"}]}'
+
+# Release the hold
+curl -X PATCH http://localhost:8083/api/v1/holds/<holdId>/release \
+  -H 'Content-Type: application/json' \
+  -d '{"releasedBy":"admin"}'
+```
+
 ## Configuration
 
 All connection strings come from environment variables and never from
@@ -154,6 +191,8 @@ chain.
 cd ingestion-service && ./mvnw test
 cd search-service   && mvn test
 cd search-service   && mvn test -Dgroups=integration -Dexcluded.test.groups=
+cd case-hold-service && ./mvnw test
+cd case-hold-service && ./mvnw test -Dgroups=integration -Dexcluded.test.groups=
 ```
 
 Integration tests use Testcontainers and require Docker.
@@ -163,4 +202,5 @@ Integration tests use Testcontainers and require Docker.
 -   `ingestion-service/ingestion-service-README.md`
 -   `ingestion-service/discovery-hub-project-status.md`
 -   `search-service/README.md`
+-   `Case-hold-service-readme.md`
 -   `corpus-generator/README.md`
