@@ -34,6 +34,8 @@ class SearchDocumentMapperTest {
                         AttachmentMetadata.builder().attachmentId("a2").filename("notes.txt").build()
                 ))
                 .createdAt(indexedAt)
+                .holdCount(2)
+                .dispositionStatus("RETAINED")
                 .build();
 
         SearchDocument document = mapper.toSearchDocument(message, indexedAt);
@@ -51,6 +53,8 @@ class SearchDocumentMapperTest {
         assertThat(document.getIndexedAt()).isEqualTo("2026-09-08T03:00:05Z");
         assertThat(document.getAttachmentCount()).isEqualTo(2);
         assertThat(document.getAttachmentFilenames()).containsExactly("review.pdf", "notes.txt");
+        assertThat(document.getHoldCount()).isEqualTo(2);
+        assertThat(document.getDispositionStatus()).isEqualTo("RETAINED");
     }
 
     @Test
@@ -66,6 +70,8 @@ class SearchDocumentMapperTest {
         assertThat(document.getAttachmentFilenames()).isEmpty();
         assertThat(document.getAttachmentCount()).isZero();
         assertThat(document.getMessageTimestamp()).isNull();
+        assertThat(document.getHoldCount()).isZero();
+        assertThat(document.getDispositionStatus()).isNull();
     }
 
     @Test
