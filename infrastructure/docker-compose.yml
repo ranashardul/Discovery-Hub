@@ -132,6 +132,11 @@ services:
       AWS_REGION: ${AWS_REGION:-ap-south-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minioadmin}}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}
+      # Temporary credentials (SSO, assumed role, MFA) also need a session
+      # token. Uncomment this line in that case. It stays commented by default
+      # because an empty token would be sent as an empty security-token header
+      # and rejected, breaking the long-term access-key path.
+      # AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN-}
       RETENTION_DEFAULT_DAYS: ${RETENTION_DEFAULT_DAYS:-365}
       OUTBOX_INTERVAL_MS: ${OUTBOX_INTERVAL_MS:-15000}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

@@ -56,6 +56,40 @@ Credentials resolve through the standard AWS chain, so environment variables,
 a shared credentials file, an instance profile or an assumed role all work
 without code changes. Nothing is hardcoded and `.env` is git-ignored.
 
+### Which credentials are needed
+
+Only two values are required for a long-term IAM user access key:
+
+``` text
+AWS_ACCESS_KEY_ID       starts with AKIA, 20 characters
+AWS_SECRET_ACCESS_KEY   40 characters
+```
+
+`AWS_REGION` is not a credential but must match the bucket.
+
+Temporary credentials (IAM Identity Center / SSO, an assumed role, or an
+MFA session) have an access key starting with `ASIA` and additionally require
+`AWS_SESSION_TOKEN`. Uncomment the `AWS_SESSION_TOKEN` line in the Compose
+service definition when using those, and remember they expire.
+
+Preferred order, most secure first:
+
+1.  An IAM role attached to the compute the service runs on, so there is no
+    long-lived secret at all. Requires no configuration here: the default
+    credential chain picks the role up automatically.
+2.  Temporary credentials from SSO or an assumed role.
+3.  A long-term IAM user access key scoped to the policy below. Simplest for
+    local development, but the secret exists until it is rotated.
+
+### Creating a long-term access key
+
+1.  IAM, then Users, then Create user. Do not grant console access.
+2.  Attach the policy below as an inline or customer-managed policy.
+3.  Open the user, then Security credentials, then Create access key, and
+    choose "Application running outside AWS".
+4.  Copy both values into `.env`. The secret is shown only once.
+5.  Rotate or delete the key when it is no longer needed.
+
 To run against local MinIO instead, set `S3_ENDPOINT=http://minio:9000`,
 `S3_PATH_STYLE_ACCESS=true` and `S3_CREATE_BUCKET=true`.
 
