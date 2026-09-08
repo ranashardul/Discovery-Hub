@@ -1,7 +1,9 @@
 package com.stown.ingestion.api;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -18,8 +20,8 @@ public class IngestionRequest {
     @Email
     private String sender;
 
-    @NotNull
-    private List<@Email String> recipients;
+    @NotEmpty
+    private List<@Email @NotBlank String> recipients;
 
     @NotBlank
     private String subject;
@@ -31,4 +33,10 @@ public class IngestionRequest {
     private Instant messageTimestamp;
 
     private String threadId;
+
+    /** Stable identifier from the source system, used for idempotency. */
+    private String externalMessageId;
+
+    @Valid
+    private List<AttachmentRequest> attachments;
 }

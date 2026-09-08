@@ -5,18 +5,21 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * An attachment binary that has been uploaded to the staging area of the object
+ * store by the API. Only this reference travels through Kafka, never the binary
+ * itself.
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AttachmentMetadata {
+public class StagedAttachment {
 
-    private String attachmentId;
     private String filename;
     private String contentType;
     private long sizeBytes;
     private String sha256;
-    private String s3Bucket;
-    private String s3Key;
-    private String s3Url;
+    private String stagingBucket;
+    private String stagingKey;
 }

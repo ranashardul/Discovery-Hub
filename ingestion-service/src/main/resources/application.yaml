@@ -1,46 +1,88 @@
 server:
-  port: 8081
+  port: ${INGESTION_PORT:8081}
 
 spring:
   application:
     name: ingestion-service
 
+  # Spring Boot 4 reads the connection URI from spring.mongodb.*; only Spring
+  # Data specific settings live under spring.data.mongodb.*.
+  # Set MONGODB_URI to an Atlas mongodb+srv:// string to use a cluster.
+  mongodb:
+    uri: ${MONGODB_URI:mongodb://localhost:27017/legal_discovery}
 
   data:
     mongodb:
-      uri: mongodb://localhost:27017/legal_discovery
-      database: legal_discovery
+      auto-index-creation: true
 
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
     consumer:
-      group-id: ingestion-service
+      group-id: ${KAFKA_CONSUMER_GROUP:ingestion-service}
       auto-offset-reset: earliest
       enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
       properties:
         spring.json.trusted.packages: "com.stown.ingestion"
+        spring.json.value.default.type: com.stown.ingestion.messaging.IngestionRequestedEvent
 
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+      acks: all
+      retries: 5
       properties:
         enable.idempotence: true
-        acks: all
+        delivery.timeout.ms: 30000
+        request.timeout.ms: 10000
+        max.block.ms: 10000
+
+    listener:
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:3}
+
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 50MB
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
 
 app:
   storage:
-    endpoint: http://localhost:9000
-    access-key: minioadmin
-    secret-key: minioadmin
-    bucket: legal-attachments
-    region: us-east-1
+    bucket: ${S3_BUCKET:discovery-hub-attachments}
+    region: ${AWS_REGION:ap-south-1}
+    # Empty endpoint means real AWS S3; set it to a MinIO URL for local runs.
+    endpoint: ${S3_ENDPOINT:http://localhost:9000}
+    path-style-access: ${S3_PATH_STYLE_ACCESS:true}
+    create-bucket-on-startup: ${S3_CREATE_BUCKET:true}
+    staging-prefix: staging
+    message-prefix: messages
+    public-base-url: ${S3_PUBLIC_BASE_URL:}
 
   retention:
-    default-days: 365
+    default-days: ${RETENTION_DEFAULT_DAYS:365}
+
+  kafka:
+    partitions: ${KAFKA_TOPIC_PARTITIONS:3}
+    retry:
+      initial-interval-ms: 1000
+      multiplier: 2.0
+      max-interval-ms: 30000
+      max-elapsed-ms: 120000
+
+  outbox:
+    initial-delay-ms: ${OUTBOX_INITIAL_DELAY_MS:15000}
+    interval-ms: ${OUTBOX_INTERVAL_MS:15000}
+
+logging:
+  level:
+    com.stown.ingestion: ${LOG_LEVEL:INFO}

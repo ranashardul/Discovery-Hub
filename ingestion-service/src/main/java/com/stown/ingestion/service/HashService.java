@@ -14,6 +14,14 @@ import java.util.List;
 @Service
 public class HashService {
 
+    /**
+     * Canonicalizes the message and hashes it with SHA-256.
+     *
+     * <p>{@code externalMessageId} participates in the canonical form. A source
+     * system identifier distinguishes two genuinely different messages that
+     * happen to carry identical content, while re-submitting the same source
+     * message still produces the same key and stays idempotent.
+     */
     public String calculateDeduplicationKey(IngestionRequest request) {
         List<String> sortedRecipients = new ArrayList<>(
                 request.getRecipients()
@@ -28,7 +36,8 @@ public class HashService {
                 safe(request.getSubject()),
                 safe(request.getBody()),
                 request.getMessageTimestamp().toString(),
-                safe(request.getThreadId())
+                safe(request.getThreadId()),
+                safe(request.getExternalMessageId())
         );
 
         return sha256(canonicalValue);
