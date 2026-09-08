@@ -1,0 +1,71 @@
+server:
+  port: ${SEARCH_PORT:8082}
+
+spring:
+  application:
+    name: search-service
+
+  # Spring Boot 4 reads the connection URI from spring.mongodb.*; only Spring
+  # Data specific settings live under spring.data.mongodb.*.
+  mongodb:
+    uri: ${MONGODB_URI:mongodb://localhost:27017/legal_discovery}
+
+  data:
+    mongodb:
+      auto-index-creation: true
+
+  elasticsearch:
+    uris: ${ELASTICSEARCH_URIS:http://localhost:9200}
+    username: ${ELASTICSEARCH_USERNAME:}
+    password: ${ELASTICSEARCH_PASSWORD:}
+    connection-timeout: 5s
+    socket-timeout: 30s
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+    consumer:
+      group-id: search-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+      properties:
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.stown.search.messaging.MessageIngestedEvent
+        spring.json.trusted.packages: "com.stown.search"
+
+    # The only producer is the dead-letter publisher; its serializers have to
+    # cope with both deserialised events and raw bytes, so the factory is built
+    # in com.stown.search.config.KafkaConfig instead of here.
+
+    listener:
+      ack-mode: record
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+app:
+  search:
+    index: ${SEARCH_INDEX:messages}
+    reconcile-interval-ms: ${SEARCH_RECONCILE_INTERVAL_MS:60000}
+    reconcile-batch-size: ${SEARCH_RECONCILE_BATCH_SIZE:100}
+    reconcile-backfill-enabled: ${SEARCH_RECONCILE_BACKFILL_ENABLED:true}
+    max-page-size: ${SEARCH_MAX_PAGE_SIZE:100}
+    snippet-length: ${SEARCH_SNIPPET_LENGTH:240}
+    topic: ${SEARCH_TOPIC:message.ingested}
+    dead-letter-topic: ${SEARCH_DEAD_LETTER_TOPIC:message.ingested.dlt}
+    retry-attempts: ${SEARCH_RETRY_ATTEMPTS:3}
+    retry-initial-interval-ms: ${SEARCH_RETRY_INITIAL_INTERVAL_MS:1000}
+    retry-multiplier: ${SEARCH_RETRY_MULTIPLIER:2.0}
+    retry-max-interval-ms: ${SEARCH_RETRY_MAX_INTERVAL_MS:10000}
+
+logging:
+  level:
+    com.stown.search: INFO
