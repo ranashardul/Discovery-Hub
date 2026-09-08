@@ -106,7 +106,9 @@ public class SearchService {
                 snippet(hit.highlight(), document.getBody()),
                 document.getThreadId(),
                 document.getMessageTimestamp(),
-                document.getAttachmentCount()
+                document.getAttachmentCount(),
+                document.getHoldCount() > 0,
+                document.getDispositionStatus()
         );
     }
 

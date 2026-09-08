@@ -71,7 +71,9 @@ public class MessageIndexClient {
                                     .fields("keyword", field -> field.keyword(keyword -> keyword.ignoreAbove(256)))))
                             .properties("messageTimestamp", property -> property.date(date -> date))
                             .properties("indexedAt", property -> property.date(date -> date))
-                            .properties("attachmentCount", property -> property.integer(integer -> integer))));
+                            .properties("attachmentCount", property -> property.integer(integer -> integer))
+                            .properties("holdCount", property -> property.integer(integer -> integer))
+                            .properties("dispositionStatus", property -> property.keyword(keyword -> keyword))));
 
             log.info("Created Elasticsearch index index={}", index);
         } catch (Exception exception) {

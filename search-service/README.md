@@ -78,9 +78,29 @@ index does not already exist.
 | `messageTimestamp`     | date                              | sorting / range            |
 | `indexedAt`            | date                              | observability              |
 | `attachmentCount`      | integer                           | display                    |
+| `holdCount`            | integer                           | legal-hold state           |
+| `dispositionStatus`    | keyword                           | disposition state          |
 
 Indexing uses `messageId` as the Elasticsearch document id, so replays and
 reconciliation overwrite rather than duplicate.
+
+`holdCount` and `dispositionStatus` are owned by the case/hold service and are
+projected read-only, so a reviewer can see whether a result is under legal hold
+without a second round trip.
+
+> **Mapping change.** `holdCount` and `dispositionStatus` were added after the
+> first release. An index created before that has no mapping for them, so
+> Elasticsearch infers one on first write and `dispositionStatus` becomes
+> `text` — which an exact-match filter cannot use. Drop the index once and let
+> the reconciliation job back-fill it:
+>
+> ```bash
+> curl -X DELETE "http://localhost:9200/messages"
+> ```
+>
+> Nothing is lost: MongoDB is the source of truth and
+> `SEARCH_RECONCILE_BACKFILL_ENABLED` rebuilds the index within
+> `SEARCH_RECONCILE_INTERVAL_MS`.
 
 ## Endpoints
 
@@ -108,7 +128,9 @@ curl "http://localhost:8082/api/search?q=merger%20agreement&communicationType=EM
       "snippet": "Attached is the signed <em>merger</em> <em>agreement</em> ...",
       "threadId": "thread-falcon",
       "messageTimestamp": "2026-09-08T03:00:00Z",
-      "attachmentCount": 1
+      "attachmentCount": 1,
+      "onHold": true,
+      "dispositionStatus": "RETAINED"
     }
   ]
 }
