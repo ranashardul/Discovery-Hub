@@ -1,0 +1,5 @@
+# Discovery Hub corpus generator dependencies (Python 3.11+)
+requests==2.32.3
+
+# Optional: only needed for the --upload-to-s3 archival flag (S3 / MinIO).
+boto3==1.34.162
