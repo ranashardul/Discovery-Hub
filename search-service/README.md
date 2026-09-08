@@ -207,7 +207,7 @@ ever hardcoded.
 
 ```bash
 cd search-service
-mvn -DskipTests package
+./mvnw -DskipTests package
 java -jar target/search-0.0.1-SNAPSHOT.jar
 ```
 
@@ -217,7 +217,7 @@ or with explicit configuration:
 MONGODB_URI=mongodb://localhost:27017/legal_discovery \
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
 ELASTICSEARCH_URIS=http://localhost:9200 \
-mvn spring-boot:run
+./mvnw spring-boot:run
 ```
 
 ## Running in Docker
@@ -235,8 +235,8 @@ docker run --rm -p 8082:8082 \
 ## Tests
 
 ```bash
-mvn test                      # unit tests only (no containers)
-mvn test -Dgroups=integration -Dexcluded.test.groups=   # Testcontainers end-to-end test
+./mvnw test                      # unit tests only (no containers)
+./mvnw test -Dgroups=integration -Dexcluded.test.groups=   # Testcontainers end-to-end test
 ```
 
 The Testcontainers test (`SearchIntegrationTest`) is tagged `integration` and
