@@ -77,10 +77,30 @@ index does not already exist.
 | `attachmentFilenames`  | text + `attachmentFilenames.keyword` | full text + exact filter |
 | `messageTimestamp`     | date                              | sorting / range            |
 | `indexedAt`            | date                              | observability              |
-| `attachmentCount`      | integer                           | display                    |
+| `attachmentCount`      | integer                           | display + `hasAttachments` |
+| `holdCount`            | integer                           | `onHold` filter            |
+| `dispositionStatus`    | keyword                           | exact filter               |
 
 Indexing uses `messageId` as the Elasticsearch document id, so replays and
 reconciliation overwrite rather than duplicate.
+
+`holdCount` and `dispositionStatus` are owned by the case/hold service and are
+projected read-only, so a reviewer can narrow a result set to material under
+legal hold without a second round trip.
+
+> **Mapping change.** `holdCount` and `dispositionStatus` were added after the
+> first release. An index created before that has no mapping for them, so
+> Elasticsearch infers one on first write and `dispositionStatus` becomes
+> `text` — which the exact-match filter cannot use. Drop the index once and let
+> the reconciliation job back-fill it:
+>
+> ```bash
+> curl -X DELETE "http://localhost:9200/messages"
+> ```
+>
+> Nothing is lost: MongoDB is the source of truth and
+> `SEARCH_RECONCILE_BACKFILL_ENABLED` rebuilds the index within
+> `SEARCH_RECONCILE_INTERVAL_MS`.
 
 ## Endpoints
 
@@ -96,6 +116,7 @@ curl "http://localhost:8082/api/search?q=merger%20agreement&communicationType=EM
   "total": 123,
   "from": 0,
   "size": 20,
+  "sort": "relevance",
   "tookMillis": 12,
   "results": [
     {
@@ -108,16 +129,54 @@ curl "http://localhost:8082/api/search?q=merger%20agreement&communicationType=EM
       "snippet": "Attached is the signed <em>merger</em> <em>agreement</em> ...",
       "threadId": "thread-falcon",
       "messageTimestamp": "2026-09-08T03:00:00Z",
-      "attachmentCount": 1
+      "attachmentCount": 1,
+      "onHold": true,
+      "dispositionStatus": "RETAINED"
     }
   ]
 }
 ```
 
+#### Query parameters
+
+| Parameter           | Type      | Description                                                |
+|---------------------|-----------|------------------------------------------------------------|
+| `q`                 | string    | **Required.** Full text over `subject` (boosted x2), `body`|
+| `communicationType` | keyword   | Exact match, e.g. `EMAIL` / `CHAT`                         |
+| `sender`            | keyword   | Exact match on the sender address                          |
+| `recipient`         | keyword   | Exact match against any entry in `recipients`              |
+| `threadId`          | keyword   | Exact match                                                |
+| `dispositionStatus` | keyword   | Exact match                                                |
+| `onHold`            | boolean   | `true` = under at least one hold, `false` = under none     |
+| `hasAttachments`    | boolean   | `true` = at least one attachment, `false` = none           |
+| `after`             | ISO-8601  | `messageTimestamp` lower bound, inclusive                  |
+| `before`            | ISO-8601  | `messageTimestamp` upper bound, inclusive                  |
+| `sort`              | enum      | `relevance` (default), `newest`, `oldest`                  |
+| `from`              | integer   | Offset, defaults to 0                                      |
+| `size`              | integer   | Page size, defaults to 20, capped at 100                   |
+
+Every filter is optional and combines with the others as an `AND`. Blank values
+are treated as absent, so `&sender=` behaves the same as omitting the parameter.
+
 - `q` is required and must not be blank (`400` otherwise).
 - `size` defaults to 20 and is capped at 100 (`SEARCH_MAX_PAGE_SIZE`).
 - `snippet` is an Elasticsearch highlight over `subject`/`body`, falling back
   to a truncated body when there is no highlight fragment.
+- `after`/`before` must be ISO-8601 instants such as `2026-09-08T03:00:00Z`;
+  anything else is a `400` attributed to that field, as is `after` > `before`.
+- `sort` is case-insensitive. The chronological orderings break ties on
+  `messageId` so deep pagination stays stable.
+- Filters run in Elasticsearch's filter context, so they are cached and do not
+  influence the relevance score.
+
+Narrowing to attachments held under a legal hold in a date window, newest first:
+
+```bash
+curl "http://localhost:8082/api/search?q=merger%20agreement\
+&onHold=true&hasAttachments=true\
+&after=2026-09-01T00:00:00Z&before=2026-09-30T00:00:00Z\
+&sort=newest"
+```
 
 ### Fetch an indexed document
 
@@ -207,7 +266,7 @@ ever hardcoded.
 
 ```bash
 cd search-service
-mvn -DskipTests package
+./mvnw -DskipTests package
 java -jar target/search-0.0.1-SNAPSHOT.jar
 ```
 
@@ -217,7 +276,7 @@ or with explicit configuration:
 MONGODB_URI=mongodb://localhost:27017/legal_discovery \
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
 ELASTICSEARCH_URIS=http://localhost:9200 \
-mvn spring-boot:run
+./mvnw spring-boot:run
 ```
 
 ## Running in Docker
@@ -235,8 +294,8 @@ docker run --rm -p 8082:8082 \
 ## Tests
 
 ```bash
-mvn test                      # unit tests only (no containers)
-mvn test -Dgroups=integration -Dexcluded.test.groups=   # Testcontainers end-to-end test
+./mvnw test                      # unit tests only (no containers)
+./mvnw test -Dgroups=integration -Dexcluded.test.groups=   # Testcontainers end-to-end test
 ```
 
 The Testcontainers test (`SearchIntegrationTest`) is tagged `integration` and

@@ -1,5 +1,6 @@
 package com.stown.search.service;
 
+import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import com.stown.search.api.SearchResponse;
@@ -33,10 +34,11 @@ public class SearchService {
     public SearchResponse search(SearchCriteria criteria) {
         long startedAt = System.nanoTime();
         Query query = queryBuilder.build(criteria);
+        List<SortOptions> sort = queryBuilder.sort(criteria);
 
         try {
             co.elastic.clients.elasticsearch.core.SearchResponse<SearchDocument> response =
-                    indexClient.search(query, criteria.from(), criteria.size(), HIGHLIGHT_FIELDS);
+                    indexClient.search(query, sort, criteria.from(), criteria.size(), HIGHLIGHT_FIELDS);
 
             List<SearchResultItem> results = new ArrayList<>();
             for (Hit<SearchDocument> hit : response.hits().hits()) {
@@ -51,11 +53,12 @@ public class SearchService {
             long tookMillis = (System.nanoTime() - startedAt) / 1_000_000L;
 
             log.info(
-                    "Search executed query=\"{}\" total={} from={} size={} tookMillis={}",
+                    "Search executed query=\"{}\" total={} from={} size={} sort={} tookMillis={}",
                     criteria.query(),
                     total,
                     criteria.from(),
                     criteria.size(),
+                    criteria.sort().value(),
                     tookMillis
             );
 
@@ -64,6 +67,7 @@ public class SearchService {
                     total,
                     criteria.from(),
                     criteria.size(),
+                    criteria.sort().value(),
                     tookMillis,
                     results
             );
@@ -106,7 +110,9 @@ public class SearchService {
                 snippet(hit.highlight(), document.getBody()),
                 document.getThreadId(),
                 document.getMessageTimestamp(),
-                document.getAttachmentCount()
+                document.getAttachmentCount(),
+                document.getHoldCount() > 0,
+                document.getDispositionStatus()
         );
     }
 

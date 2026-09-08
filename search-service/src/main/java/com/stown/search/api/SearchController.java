@@ -27,19 +27,34 @@ public class SearchController {
             @RequestParam(name = "q", required = false) String query,
             @RequestParam(name = "communicationType", required = false) String communicationType,
             @RequestParam(name = "sender", required = false) String sender,
+            @RequestParam(name = "recipient", required = false) String recipient,
             @RequestParam(name = "threadId", required = false) String threadId,
+            @RequestParam(name = "dispositionStatus", required = false) String dispositionStatus,
+            @RequestParam(name = "onHold", required = false) Boolean onHold,
+            @RequestParam(name = "hasAttachments", required = false) Boolean hasAttachments,
+            @RequestParam(name = "after", required = false) String after,
+            @RequestParam(name = "before", required = false) String before,
+            @RequestParam(name = "sort", required = false) String sort,
             @RequestParam(name = "from", required = false) Integer from,
             @RequestParam(name = "size", required = false) Integer size
     ) {
-        SearchCriteria criteria = SearchCriteria.of(
-                query,
-                communicationType,
-                sender,
-                threadId,
-                from,
-                size,
-                properties.getMaxPageSize()
-        );
+        SearchRequest request = SearchRequest.builder()
+                .q(query)
+                .communicationType(communicationType)
+                .sender(sender)
+                .recipient(recipient)
+                .threadId(threadId)
+                .dispositionStatus(dispositionStatus)
+                .onHold(onHold)
+                .hasAttachments(hasAttachments)
+                .after(after)
+                .before(before)
+                .sort(sort)
+                .from(from)
+                .size(size)
+                .build();
+
+        SearchCriteria criteria = SearchCriteria.of(request, properties.getMaxPageSize());
 
         return ResponseEntity.ok(searchService.search(criteria));
     }

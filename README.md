@@ -189,10 +189,8 @@ chain.
 
 ``` bash
 cd ingestion-service && ./mvnw test
-cd search-service   && mvn test
-cd search-service   && mvn test -Dgroups=integration -Dexcluded.test.groups=
-cd case-hold-service && ./mvnw test
-cd case-hold-service && ./mvnw test -Dgroups=integration -Dexcluded.test.groups=
+cd search-service   && ./mvnw test
+cd search-service   && ./mvnw test -Dgroups=integration -Dexcluded.test.groups=
 ```
 
 Integration tests use Testcontainers and require Docker.

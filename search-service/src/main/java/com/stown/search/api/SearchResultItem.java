@@ -12,6 +12,8 @@ public record SearchResultItem(
         String snippet,
         String threadId,
         String messageTimestamp,
-        int attachmentCount
+        int attachmentCount,
+        boolean onHold,
+        String dispositionStatus
 ) {
 }

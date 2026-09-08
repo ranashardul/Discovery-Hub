@@ -37,4 +37,12 @@ public class MessageDocument {
     private List<AttachmentMetadata> attachments;
 
     private Instant createdAt;
+
+    /**
+     * Legal-hold and disposition state owned by the case/hold service. Projected
+     * into the index so that a reviewer can narrow a result set to material that
+     * is under hold without a second round trip.
+     */
+    private int holdCount;
+    private String dispositionStatus;
 }
