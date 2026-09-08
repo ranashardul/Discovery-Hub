@@ -1,0 +1,166 @@
+# Discovery Hub
+
+A legal-discovery platform built as independently deployable
+microservices. Communications are ingested asynchronously, stored
+durably, and made searchable within seconds.
+
+``` text
+Corpus generator / Angular UI
+              |
+              v
+       Ingestion API  :8081        validate, stage attachments, register request
+              |
+              v
+   Kafka: ingestion.requested
+              |
+              v
+       Ingestion Worker            immutable message ID, durable storage
+              |
+       +------+------+
+       |             |
+       v             v
+   MongoDB          S3             message data / attachment binaries
+       |
+       v
+   Kafka: message.ingested         published from the outbox
+              |
+              v
+       Search Service  :8082
+              |
+              v
+        Elasticsearch  :9200
+```
+
+## Repository Layout
+
+  Path                   Contents
+  ---------------------- ---------------------------------------------
+  `ingestion-service/`   Ingestion API and worker (Java 21, Boot 4)
+  `search-service/`      Elasticsearch projection and search API
+  `corpus-generator/`    Python synthetic-corpus generator
+  `infrastructure/`      Docker Compose stack
+  `.env.example`         Every configuration variable, with placeholders
+
+## Quick Start
+
+``` bash
+cp .env.example .env          # fill in real values as needed
+ln -s ../.env infrastructure/.env
+
+cd infrastructure
+docker compose up -d --build
+docker compose ps
+```
+
+Every value in `.env` has a working default aimed at the local
+containers, so an unedited copy starts a complete local stack.
+
+Verify:
+
+``` bash
+curl http://localhost:8081/actuator/health
+curl http://localhost:8082/actuator/health
+```
+
+## Services and Ports
+
+  Service             Container                   Port
+  ------------------- ------------------------- --------
+  MongoDB             `stown-mongodb`             `27017`
+  Kafka               `stown-kafka`                `9092`
+  MinIO API           `stown-minio`                `9000`
+  MinIO Console       `stown-minio`                `9001`
+  Kafka UI            `stown-kafka-ui`             `8085`
+  Elasticsearch       `stown-elasticsearch`        `9200`
+  Ingestion Service   `stown-ingestion-service`    `8081`
+  Search Service      `stown-search-service`       `8082`
+
+Kafka advertises `localhost:9092` for host clients and `kafka:19092`
+for containers on the compose network. Use container names, never
+`localhost`, when connecting from inside a container.
+
+## Generate a Corpus
+
+Start small, then scale up:
+
+``` bash
+cd corpus-generator
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+
+.venv/bin/python generate_corpus.py \
+  --messages 20 --custodians 20 --rate 2 --output test-corpus
+```
+
+``` bash
+.venv/bin/python generate_corpus.py \
+  --messages 10000 --custodians 25 --rate 100 --workers 8 \
+  --output generated-corpus --seed 42
+```
+
+Submissions are idempotent: re-running the same seed creates no
+duplicate messages, S3 objects or events.
+
+## Verify
+
+MongoDB:
+
+``` bash
+docker exec stown-mongodb mongosh --quiet --eval '
+db = db.getSiblingDB("legal_discovery");
+print("messages   = " + db.messages.countDocuments());
+print("EMAIL      = " + db.messages.countDocuments({communicationType: "EMAIL"}));
+print("CHAT       = " + db.messages.countDocuments({communicationType: "CHAT"}));
+print("withAtt    = " + db.messages.countDocuments({attachments: {$exists: true, $ne: []}}));
+print("custodians = " + db.messages.distinct("sender").length);
+print("threads    = " + db.messages.distinct("threadId").length);
+print("outboxPend = " + db.messages.countDocuments({outboxStatus: "PENDING"}));
+print("failed     = " + db.ingestion_requests.countDocuments({status: "FAILED"}));
+'
+```
+
+Object storage:
+
+``` bash
+docker run --rm --network infrastructure_default \
+  -e AWS_ACCESS_KEY_ID=minioadmin -e AWS_SECRET_ACCESS_KEY=minioadmin \
+  amazon/aws-cli:latest --endpoint-url http://minio:9000 \
+  s3 ls s3://discovery-hub-attachments/ --recursive --summarize
+```
+
+Search:
+
+``` bash
+curl "http://localhost:8082/api/search?q=budget%20review&size=3"
+curl "http://localhost:8082/api/search/stats"
+```
+
+## Configuration
+
+All connection strings come from environment variables and never from
+source. `.env` is git-ignored; `.env.example` is the documented
+template. To use MongoDB Atlas instead of the local container:
+
+``` text
+MONGODB_URI=mongodb+srv://<username>:<password>@<cluster-host>/legal_discovery?retryWrites=true&w=majority
+```
+
+For real AWS S3 instead of MinIO, leave `S3_ENDPOINT` empty and supply
+`S3_BUCKET`, `AWS_REGION` and credentials through the standard AWS
+chain.
+
+## Tests
+
+``` bash
+cd ingestion-service && ./mvnw test
+cd search-service   && mvn test
+cd search-service   && mvn test -Dgroups=integration -Dexcluded.test.groups=
+```
+
+Integration tests use Testcontainers and require Docker.
+
+## Further Reading
+
+-   `ingestion-service/ingestion-service-README.md`
+-   `ingestion-service/discovery-hub-project-status.md`
+-   `search-service/README.md`
+-   `corpus-generator/README.md`

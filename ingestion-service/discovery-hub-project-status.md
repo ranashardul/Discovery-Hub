@@ -17,34 +17,71 @@ The intended platform includes:
 -   Export
 -   Auditability
 
-The current implementation is still in the early foundation stage. The
-ingestion service is the first working backend service.
+The ingestion path and the search path are implemented and verified
+end to end against a 10,000-message synthetic corpus. Case management,
+legal holds, export and disposition are still outstanding.
+
+### Verified corpus run
+
+A 10,000-message corpus was generated and ingested with zero failures:
+
+  Metric                              Result
+  ----------------------------------- --------------------------
+  Messages submitted                  10,000 (0 failed)
+  Submission rate                     100 requests/second
+  Requests in `INGESTED`              10,001 (incl. 1 probe)
+  Requests in `FAILED`                0
+  EMAIL / CHAT                        6,435 / 3,568
+  Messages with attachments           780 (7.8%)
+  Attachment records                   901
+  S3 objects                           901 (staging prefix empty)
+  Distinct custodians (senders)        27 (25 corpus + 2 legacy)
+  Distinct threads                     2,863
+  Outbox events pending                0
+  Elasticsearch documents             10,003
+  Accept to searchable                0.32 s (target: under 30 s)
+  Dead letters on ingestion path       0
 
 ## 2. Architecture Agreed So Far
 
 ``` text
-Corpus / Angular UI
-        |
-        v
-Ingestion Service
-        |
-        +--> MongoDB: message source of truth
-        |
-        +--> MinIO/S3: attachment storage
-        |
-        +--> Kafka: message.ingested event
-                    |
-                    v
-              Search Service
-                    |
-                    v
-              Elasticsearch
+Corpus generator / Angular UI
+              |
+              v
+       Ingestion API              staging upload, request registry
+              |
+              v
+   Kafka: ingestion.requested
+              |
+              v
+       Ingestion Worker           immutable message ID
+              |
+       +------+------+
+       |             |
+       v             v
+   MongoDB          S3            message data / attachment binaries
+       |
+       v
+   Kafka: message.ingested        published from the outbox
+              |
+              v
+       Search Service
+              |
+              v
+        Elasticsearch
+              |
+              v
+         Search API
 ```
+
+Ingestion is asynchronous and decoupled: the API only accepts, stages
+and publishes, while the worker owns durable storage. Attachment
+binaries never travel through Kafka.
 
 The planned backend services are:
 
-1.  Ingestion Service
-2.  Search Service
+1.  Ingestion Service (implemented)
+2.  Search Service (implemented)
 3.  Case and Legal Hold Service
 4.  Export and Retention Service
 
@@ -83,6 +120,7 @@ Current containers:
 -   `stown-kafka`
 -   `stown-minio`
 -   `stown-kafka-ui`
+-   `stown-ingestion-service`
 
 Current exposed ports:
 
@@ -93,6 +131,10 @@ Current exposed ports:
   MinIO API          9000
   MinIO Console      9001
   Kafka UI           8085
+  Ingestion          8081
+
+Kafka advertises `localhost:9092` for host clients and `kafka:19092` for
+containers on the compose network.
 
 Kafka was initially blocked by image and configuration issues. It is now
 running successfully in KRaft mode using Apache Kafka `3.7.2`.
@@ -119,183 +161,191 @@ The Spring Boot ingestion service is running on port `8081`.
 Implemented pieces include:
 
 -   Spring Boot application
--   REST controller
--   Request validation
--   Ingestion service
+-   REST controller returning `202 Accepted`
+-   Request validation, including attachment validation
+-   Request registry backing idempotency and status lookup
 -   SHA-256 deduplication-key generation
--   MongoDB repository
--   Message document model
--   Kafka event model
--   Kafka topic configuration
--   Kafka JSON serialization
+-   S3 staging upload in the API
+-   Kafka producer for `ingestion.requested`
+-   Kafka worker consuming `ingestion.requested`
+-   Immutable message-ID assignment
+-   Server-side attachment copy to durable object keys
+-   MongoDB repositories, message and request documents
+-   Outbox-based `message.ingested` publication with a scheduled sweep
+-   Retry with exponential backoff and a dead-letter topic
+-   Structured error responses
 -   Health endpoint
 
 The service exposes:
 
 ``` text
 POST /api/ingestion/messages
+GET  /api/ingestion/requests/{requestId}
+GET  /api/ingestion/requests?deduplicationKey=...
+GET  /api/ingestion/requests?externalMessageId=...
+GET  /actuator/health
 ```
 
-The health endpoint is:
-
-``` text
-GET /actuator/health
-```
-
-The health endpoint returned an `UP` status.
+The health endpoint returns `UP`.
 
 ### 3.5 Ingestion Request Model
 
-The current request accepts:
+The request accepts:
 
--   `communicationType`
+-   `communicationType` (`EMAIL` or `CHAT`)
 -   `sender`
 -   `recipients`
 -   `subject`
 -   `body`
 -   `messageTimestamp`
--   `threadId`
+-   `threadId` (optional)
+-   `externalMessageId` (optional)
+-   `attachments` (optional, base64 binaries)
 
-Validation currently includes:
+Validation includes:
 
 -   Required fields must be present.
 -   Sender must be an email address.
--   Recipient values must be email addresses.
+-   Recipient values must be email addresses and the list must not be
+    empty.
 -   Timestamp must be present.
+-   Attachment filenames and base64 content must be present and
+    decodable.
 
-### 3.6 Deduplication
+### 3.6 Deduplication and Idempotency
 
 The service calculates a SHA-256 deduplication key from canonicalized
-message data.
+message data. The canonical input includes communication type, sender,
+sorted recipients, subject, body, message timestamp, thread ID and
+external message ID.
 
-The canonical input includes:
-
--   Communication type
--   Sender
--   Sorted recipients
--   Subject
--   Body
--   Message timestamp
--   Thread ID
-
-The service first checks for an existing message with the same
-deduplication key. A duplicate request returns the existing message
-instead of creating another message.
-
-A unique MongoDB index should be maintained on:
+Duplicate submissions are resolved before any write, and the unique
+indexes below make the guarantee hold under concurrency:
 
 ``` javascript
-db.messages.createIndex(
-  { deduplicationKey: 1 },
-  { unique: true }
-)
+db.messages.createIndex({ deduplicationKey: 1 }, { unique: true })
+db.messages.createIndex({ externalMessageId: 1 }, { unique: true, sparse: true })
+db.ingestion_requests.createIndex({ deduplicationKey: 1 }, { unique: true })
+db.ingestion_requests.createIndex({ externalMessageId: 1 }, { unique: true, sparse: true })
 ```
 
-### 3.7 Kafka Event
+A duplicate request creates no second document, no second S3 object and
+no second logical event. Statuses are `RECEIVED`, `PROCESSING`,
+`INGESTED` and `FAILED`; a `FAILED` request keeps its message ID and can
+be retried without creating a new identity.
 
-After a message is saved, the service publishes a `MessageIngestedEvent`
-to:
+### 3.7 Kafka Events
+
+`ingestion.requested` carries the message content and staged attachment
+references. `message.ingested` is published from the outbox after
+durable storage and contains `eventId`, `messageId`, `deduplicationKey`
+and `occurredAt`.
+
+Both topics have dead-letter counterparts. A Kafka serialization issue
+was found and corrected: the producer uses `JacksonJsonSerializer`
+(Jackson 3) for event values. See section 5.1.
+
+### 3.8 Search Service
+
+A new `search-service` runs on port `8082`. It consumes
+`message.ingested`, reads the message from MongoDB, and indexes it in
+Elasticsearch using the message ID as the document ID, which makes
+re-indexing idempotent.
+
+It provides:
 
 ``` text
-message.ingested
+GET /api/search?q=...&communicationType=&sender=&threadId=&from=&size=
+GET /api/search/messages/{messageId}
+GET /api/search/stats
+GET /actuator/health
 ```
 
-The event currently contains:
+Reliability features: retry with backoff, a `message.ingested.dlt`
+dead-letter topic, failure records in `search_index_failures`, and a
+scheduled reconciliation job that retries failures and indexes messages
+that exist in MongoDB but are missing from Elasticsearch.
 
--   `eventId`
--   `messageId`
--   `deduplicationKey`
--   `occurredAt`
+### 3.9 Corpus Generator
 
-A Kafka serialization issue was found and corrected. The producer now
-uses Spring Kafka JSON serialization instead of `StringSerializer` for
-the event value.
+A Python generator lives in `corpus-generator/`. It produces fictional
+custodians, EMAIL and CHAT messages with reused thread IDs, realistic
+subjects and bodies, business-hours-weighted timestamps, and valid
+attachment binaries across PDF, DOCX, XLSX, CSV, TXT, PNG and ZIP in
+sizes from 5 KB to 1 MB. It is deterministic for a given seed, records
+every submission in `messages.jsonl`, and supports `--dry-run`,
+`--resume` and rate limiting.
 
-### 3.8 Successful End-to-End Test
-
-A POST request to the ingestion endpoint succeeded and returned:
-
--   HTTP status `200`
--   A generated `messageId`
--   A generated `deduplicationKey`
--   Status `INGESTED`
-
-This confirms that the following path is working:
+### 3.10 Verified End-to-End Path
 
 ``` text
 HTTP request
     -> Request validation
     -> Deduplication-key generation
-    -> MongoDB save
-    -> Kafka event serialization
-    -> Kafka event publication
-    -> HTTP response
+    -> Attachment staging upload to S3
+    -> Request registered, HTTP 202 returned
+    -> Kafka ingestion.requested
+    -> Worker assigns immutable message ID
+    -> Attachment copied to durable S3 key, staged copy deleted
+    -> MongoDB message document written with outbox marker
+    -> Kafka message.ingested published, outbox marked PUBLISHED
+    -> Search service indexes into Elasticsearch
+    -> Message searchable through the search API
 ```
+
+Measured accept-to-searchable latency with 10,000 documents indexed:
+0.32 seconds.
 
 ## 4. Current Working Components
 
-The following components are currently working or substantially working:
+-   Java 21 toolchain and Maven build
+-   Ingestion API and ingestion worker
+-   Request validation and structured error responses
+-   SHA-256 deduplication and unique-index enforcement
+-   Immutable message IDs, stable across retries
+-   MongoDB persistence (`messages`, `ingestion_requests`)
+-   S3/MinIO attachment storage with checksums and object URLs
+-   Kafka KRaft broker, four topics, JSON serialization
+-   Outbox-based `message.ingested` publication
+-   Retry with backoff and dead-letter routing
+-   Search service, Elasticsearch indexing and search API
+-   Corpus generator
+-   Actuator health endpoints on both services
+-   Docker Compose stack with health-gated startup
+-   Environment-variable configuration with `.env.example` placeholders
+-   Test suites: 17 ingestion tests, 13 search unit tests, 2 search
+    integration tests
 
--   Java 21 toolchain
--   Maven build
--   Spring Boot application startup
--   Ingestion REST endpoint
--   Request validation
--   SHA-256 deduplication-key generation
--   MongoDB connectivity
--   Kafka connectivity
--   Kafka KRaft broker
--   Kafka JSON event serialization
--   `message.ingested` event publication
--   Actuator health endpoint
--   Docker Compose infrastructure
+## 5. Resolved Issue: MongoDB Database Selection
 
-## 5. Known Issue: MongoDB Database Selection
+The database-selection problem is resolved.
 
-There is an unresolved configuration issue involving the MongoDB
-database name.
+Root cause: the configuration used `spring.data.mongodb.uri`, but Spring
+Boot 4 reads the connection URI from `spring.mongodb.*`. The property was
+silently ignored and the driver fell back to the default
+`mongodb://localhost/test`, which is why documents appeared in `test`.
 
-The intended database is:
-
-``` text
-legal_discovery
-```
-
-However, diagnostic checks showed that the application was connecting to
-the MongoDB server and using the `test` database. The `legal_discovery`
-database was empty.
-
-MongoDB does not display an empty database in `show dbs`, so the
-following behavior is expected when no data exists in it:
-
-``` text
-admin
-config
-local
-test
-```
-
-The application's effective database configuration must still be
-verified.
-
-Recommended configuration:
+Working configuration:
 
 ``` yaml
 spring:
+  mongodb:
+    uri: mongodb://localhost:27017/legal_discovery
   data:
     mongodb:
-      host: localhost
-      port: 27017
-      database: legal_discovery
+      auto-index-creation: true
 ```
 
-After changing the configuration:
+Only Spring Data specific options such as `auto-index-creation` belong
+under `spring.data.mongodb`.
 
-1.  Run a clean build.
-2.  Restart the Spring Boot application.
-3.  Submit a new ingestion request.
-4.  Check `legal_discovery.messages`.
-5.  Confirm that the message is not being written to `test.messages`.
+The effective database, collection and indexes are now logged on startup
+by `MongoStartupCheck`:
+
+``` text
+MongoDB ready database=legal_discovery collection=messages documents=1
+    indexes=[_id_, deduplicationKey_unique (unique)]
+```
 
 Useful MongoDB checks:
 
@@ -303,52 +353,71 @@ Useful MongoDB checks:
 use legal_discovery
 show collections
 db.messages.countDocuments()
+db.messages.getIndexes()
 db.messages.findOne()
 ```
 
-Temporary diagnostic logging can print the effective database selected
-by Spring Data MongoDB.
+## 5.1 Resolved Issue: Kafka Event Serialization
+
+Events were never reaching Kafka. The producer used
+`org.springframework.kafka.support.serializer.JsonSerializer`, which is
+backed by a Jackson 2 mapper without JSR-310 support, so the `Instant`
+field of `MessageIngestedEvent` failed with:
+
+``` text
+Java 8 date/time type `java.time.Instant` not supported by default
+```
+
+Spring Boot 4 ships Jackson 3, so the producer now uses
+`JacksonJsonSerializer`. Events are confirmed present on the
+`message.ingested` topic.
+
+Additionally, `kafkaTemplate.send(...)` can fail synchronously, which
+previously turned an already-persisted ingestion into an HTTP 500. The
+service now logs publication failures and completes the request, and the
+send result is logged asynchronously with partition and offset.
 
 ## 6. Important Technical Risks Identified
 
-### 6.1 Database Save and Kafka Publication Are Not Atomic
+### 6.1 Event Loss Between MongoDB and Kafka (resolved)
 
-The current flow saves the MongoDB document and then publishes the Kafka
-event.
+The previous flow saved the document and then published the event, so a
+Kafka failure could lose the event permanently.
 
-If MongoDB succeeds but Kafka publication fails:
-
--   The message exists in MongoDB.
--   The API may return an error.
--   A retry may find the existing message.
--   The retry may return early without publishing the missing event.
-
-This can cause an event to be lost.
-
-The recommended next improvement is a transactional outbox pattern:
+This is now handled by an outbox marker stored on the message document
+itself:
 
 ``` text
-Save message + outbox event in MongoDB
+Message document + outbox marker (single atomic document write)
               |
               v
-Outbox publisher
+Outbox publisher (immediate, then scheduled sweep)
               |
               v
 Kafka
 ```
 
-### 6.2 Kafka Delivery Is Asynchronous
+Because the marker lives inside the message document, the write is
+atomic without a multi-document transaction, so the design works on a
+standalone MongoDB container and on an Atlas replica set alike.
 
-The current service calls `kafkaTemplate.send(...)` without waiting for
-the send result.
+Trade-off: delivery is at-least-once, not exactly-once. The 10,000
+message run produced 10,006 `message.ingested` records for 10,003
+messages because a few events were republished by the sweep. Consumers
+key on `messageId`, and Elasticsearch indexing is idempotent, so the
+projection stayed at exactly 10,003 documents.
 
-The implementation should eventually add:
+### 6.2 Kafka Delivery Reliability
 
--   Send callbacks or result handling
--   Retry policy
--   Error logging
--   Dead-letter handling where appropriate
--   Outbox-based reliable publication
+Producer settings are `acks=all`, `retries=5` and idempotence enabled.
+Send results are handled and logged with partition and offset. Consumer
+failures are retried with exponential backoff and then routed to a
+dead-letter topic.
+
+Still outstanding:
+
+-   Automated replay tooling for the dead-letter topics
+-   Alerting on `outboxStatus: PENDING` backlog and `FAILED` requests
 
 ### 6.3 Retention Is Currently a Placeholder
 
@@ -368,40 +437,49 @@ case-specific policy. It must also ensure that:
 -   Disposition is auditable.
 -   Legal holds override normal retention rules.
 
-### 6.4 Attachments Are Not Yet Implemented
+### 6.4 Attachment Transport
 
-The current ingestion endpoint handles message metadata and body
-content. Attachment handling still needs to be added.
+Attachments are implemented, but clients currently send binaries as
+base64 inside the JSON request. That is fine for the corpus (1 MB cap)
+and keeps Kafka events small, because the API stages the binary in S3
+and the event carries only object references.
 
-The expected approach is:
+Still outstanding:
 
--   Store attachment binaries in MinIO/S3.
--   Store attachment metadata and object keys in MongoDB.
--   Calculate checksums for attachment integrity.
--   Publish attachment-related metadata in ingestion events.
+-   A multipart upload endpoint for very large attachments
+-   A cleanup job for staged objects orphaned by requests that never
+    reach the worker
 
 ## 7. Remaining Work
 
 ### Immediate Ingestion-Service Tasks
 
--   Resolve the MongoDB database-selection issue.
--   Add `@Document(collection = "messages")` to the message document.
--   Create and verify the unique deduplication index.
--   Add integration tests for MongoDB persistence.
--   Add a duplicate-ingestion test.
--   Add invalid-request validation tests.
--   Add Kafka event-consumption verification.
--   Add reliable Kafka publication handling.
--   Add attachment upload support.
--   Add S3/MinIO object metadata.
--   Add structured logging.
--   Add consistent error responses.
--   Add API documentation.
+-   Add API documentation generation.
+-   Add a multipart upload endpoint for large attachments.
+-   Add replay tooling for `ingestion.requested.dlt`.
+-   Add a cleanup job for orphaned staged objects.
+
+Completed since the previous status:
+
+-   MongoDB database selection resolved (`spring.mongodb.uri`).
+-   Unique indexes on deduplication key and external message ID for both
+    collections.
+-   Kafka serialization fixed; events verified on the topic.
+-   Asynchronous API and worker split with `ingestion.requested`.
+-   Immutable message IDs, stable across retries.
+-   S3 attachment storage with checksums, object keys and URLs in
+    MongoDB.
+-   Processing statuses and a status-lookup endpoint.
+-   Outbox-based reliable publication plus retry and dead-letter
+    handling.
+-   Testcontainers integration tests covering the whole pipeline.
+-   Structured error responses and structured logging.
+-   Dockerfile and Docker Compose entries for both services.
+-   Environment-variable configuration with `.env.example` placeholders.
 
 ### Archival and Retention Tasks
 
 -   Define the archival data model.
--   Store attachments in MinIO/S3.
 -   Add retention-policy configuration.
 -   Implement retention evaluation.
 -   Implement legal-hold checks before disposition.
@@ -412,14 +490,21 @@ The expected approach is:
 
 ### Search-Service Tasks
 
--   Create the search service.
--   Consume `message.ingested`.
--   Index messages in Elasticsearch using `messageId` as the document
+Completed:
+
+-   Search service created on port `8082`.
+-   Consumes `message.ingested`.
+-   Indexes messages in Elasticsearch using `messageId` as the document
     ID.
--   Implement search APIs.
--   Support rebuilding the Elasticsearch projection from MongoDB or
-    events.
--   Add search integration tests.
+-   Search API with full-text query, filters, pagination and highlights.
+-   Reconciliation job rebuilds the projection from MongoDB.
+-   Unit and Testcontainers integration tests.
+
+Still outstanding:
+
+-   A full reindex endpoint or command for bulk rebuilds.
+-   Attachment content extraction and indexing.
+-   Search result access control.
 
 ### Case and Legal Hold Tasks
 
@@ -439,41 +524,88 @@ The expected approach is:
 
 ### Containerization Tasks
 
--   Add a Dockerfile for the ingestion service.
--   Add the ingestion service to Docker Compose.
--   Ensure the service can connect to containers by service name.
--   Add health checks.
--   Add environment-variable configuration.
--   Verify single-command startup.
+Completed:
+
+-   Multi-stage Dockerfiles for the ingestion and search services.
+-   Both services added to Docker Compose, along with Elasticsearch.
+-   Services connect to MongoDB, Kafka, MinIO and Elasticsearch by
+    container name, using a dedicated internal Kafka listener on
+    `kafka:19092`.
+-   Health checks for every container, with health-gated startup order.
+-   Environment-variable configuration for all connection strings.
+-   Single-command startup verified with `docker compose up -d --build`.
 
 ## 8. Recommended Next Execution Order
 
-1.  Fix and verify MongoDB database selection.
-2.  Add MongoDB collection and unique-index configuration.
-3.  Add ingestion integration tests.
-4.  Add attachment storage in MinIO.
-5.  Add outbox-based Kafka publication.
-6.  Containerize the ingestion service.
-7.  Verify the complete Docker-based ingestion flow.
-8.  Begin the archival and retention service.
-9.  Begin the search service.
-10. Implement legal holds before implementing final disposition
+1.  Begin the archival and retention service.
+2.  Implement legal holds before implementing final disposition
     behavior.
+3.  Add case management.
+4.  Add export jobs and the audit trail.
+5.  Add the operational gaps: dead-letter replay, orphaned staging
+    cleanup, bulk reindex, alerting.
+
+The ingestion rework, S3 attachment storage, outbox publication, corpus
+generation and the search service are complete and verified.
 
 ## 9. Definition of Done for the Ingestion Foundation
 
-The ingestion foundation should be considered complete when:
+-   [x] The service starts through Docker Compose.
+-   [x] The health endpoint reports healthy.
+-   [x] A valid message can be ingested.
+-   [x] The message is stored in `legal_discovery.messages`.
+-   [x] Duplicate messages do not create duplicate records.
+-   [x] The unique deduplication index exists.
+-   [x] Attachments are stored in MinIO/S3.
+-   [x] S3 URLs and metadata are stored in MongoDB.
+-   [x] A `message.ingested` event is published.
+-   [x] Kafka publication failures are recovered through an outbox.
+-   [x] Failed processing is retried and dead-lettered.
+-   [x] Message IDs are unique and immutable across retries.
+-   [x] Invalid requests return clear validation errors.
+-   [x] Integration tests pass.
+-   [x] Logs and configuration are suitable for local development.
 
--   The service starts through Docker Compose.
--   The health endpoint reports healthy.
--   A valid message can be ingested.
--   The message is stored in `legal_discovery.messages`.
--   Duplicate messages do not create duplicate records.
--   The unique deduplication index exists.
--   Attachments are stored in MinIO/S3.
--   A `message.ingested` event is published reliably.
--   Kafka publication failures are retried or recovered through an
-    outbox.
--   Invalid requests return clear validation errors.
--   Integration tests pass.
--   Logs and configuration are suitable for local development.
+## 10. Corpus and Search Completion Checklist
+
+### Corpus
+
+-   [x] At least 10,000 messages generated (10,000)
+-   [x] At least 20 fictional custodians (25)
+-   [x] Email messages generated (6,435)
+-   [x] Chat messages generated (3,568)
+-   [x] Realistic subjects and bodies
+-   [x] Realistic timestamps, business-hours weighted
+-   [x] Participants and reused thread IDs (2,863 threads)
+-   [x] At least 5% of messages have attachments (7.8%)
+-   [x] Attachment types and sizes vary
+
+### Ingestion
+
+-   [x] API accepts requests asynchronously (HTTP 202)
+-   [x] API publishes `ingestion.requested`
+-   [x] Worker performs storage
+-   [x] Message IDs are unique and immutable
+-   [x] Duplicate requests are idempotent
+-   [x] MongoDB persistence works
+-   [x] S3 upload works (901 objects)
+-   [x] S3 URLs are stored in MongoDB
+-   [x] Kafka events are published reliably through the outbox
+-   [x] Failed processing can be retried
+
+### Search
+
+-   [x] Search service consumes `message.ingested`
+-   [x] Messages are indexed in Elasticsearch (10,003 documents)
+-   [x] Elasticsearch document ID is the message ID
+-   [x] Messages are searchable within 30 seconds (0.32 s measured)
+
+### Verification
+
+-   [x] MongoDB message count is correct
+-   [x] Email and chat counts are correct
+-   [x] Attachment count is at least 500 (901)
+-   [x] Custodian count is at least 20 (25)
+-   [x] S3 object count matches attachment records (901 = 901)
+-   [x] Duplicate submission does not increase message count
+-   [x] Search results contain ingested messages
