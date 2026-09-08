@@ -1,0 +1,97 @@
+server:
+  port: ${EXPORT_PORT:8084}
+
+spring:
+  application:
+    name: export-audit-service
+
+  # Spring Boot 4 reads the connection URI from spring.mongodb.*; only Spring
+  # Data specific settings live under spring.data.mongodb.*.
+  # The export service reads the shared `messages` collection owned by the
+  # ingestion service, and writes its own `export_jobs` and `audit_events`
+  # collections to the same database.
+  mongodb:
+    uri: ${MONGODB_URI:mongodb://localhost:27017/legal_discovery}
+
+  data:
+    mongodb:
+      auto-index-creation: true
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:export-audit-service}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+      properties:
+        spring.json.use.type.headers: false
+        spring.json.trusted.packages: "com.stown.exportaudit"
+        spring.json.value.default.type: com.stown.exportaudit.messaging.ExportRequestedEvent
+
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+      acks: all
+      retries: 5
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 30000
+        request.timeout.ms: 10000
+        max.block.ms: 10000
+
+    listener:
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:2}
+      ack-mode: record
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+app:
+  storage:
+    # Bucket that holds attachment binaries owned by the ingestion service. The
+    # export service only reads from it.
+    source-bucket: ${S3_SOURCE_BUCKET:discovery-hub-attachments}
+    # Bucket that holds the generated export packages.
+    export-bucket: ${S3_EXPORT_BUCKET:discovery-hub-exports}
+    region: ${AWS_REGION:ap-south-1}
+    # Empty endpoint means real AWS S3; set it to a MinIO URL for local runs.
+    endpoint: ${S3_ENDPOINT:http://localhost:9000}
+    path-style-access: ${S3_PATH_STYLE_ACCESS:true}
+    create-bucket-on-startup: ${S3_CREATE_BUCKET:true}
+    export-prefix: exports
+    # Lifetime of a presigned download URL.
+    download-expiry-seconds: ${EXPORT_DOWNLOAD_EXPIRY_SECONDS:900}
+
+  kafka:
+    partitions: ${KAFKA_TOPIC_PARTITIONS:3}
+    retry:
+      initial-interval-ms: 1000
+      multiplier: 2.0
+      max-interval-ms: 30000
+      max-elapsed-ms: 120000
+
+  export:
+    topic: ${EXPORT_TOPIC:export.requested}
+    dead-letter-topic: ${EXPORT_DEAD_LETTER_TOPIC:export.requested.dlt}
+    completed-topic: ${EXPORT_COMPLETED_TOPIC:export.completed}
+    audit-topic: ${AUDIT_TOPIC:audit.events}
+
+  case-hold:
+    # Base URL of the Case & Hold service. Used to resolve evidence IDs for a
+    # case or a legal hold before fetching the actual messages from MongoDB.
+    base-url: ${CASE_HOLD_BASE_URL:http://localhost:8083}
+    # Kafka topic carrying Case & Hold domain events (case created, hold placed, etc.)
+    events-topic: ${CASE_HOLD_EVENTS_TOPIC:case-hold.events}
+
+logging:
+  level:
+    com.stown.exportaudit: ${LOG_LEVEL:INFO}
