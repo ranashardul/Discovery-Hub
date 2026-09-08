@@ -7,6 +7,7 @@ public record SearchResponse(
         long total,
         int from,
         int size,
+        String sort,
         long tookMillis,
         List<SearchResultItem> results
 ) {

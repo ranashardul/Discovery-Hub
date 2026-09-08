@@ -1,6 +1,7 @@
 package com.stown.search.index;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.GetResponse;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
@@ -125,6 +126,7 @@ public class MessageIndexClient {
 
     public SearchResponse<SearchDocument> search(
             Query query,
+            List<SortOptions> sort,
             int from,
             int size,
             List<String> highlightFields
@@ -136,6 +138,10 @@ public class MessageIndexClient {
                     .from(from)
                     .size(size)
                     .trackTotalHits(track -> track.enabled(true));
+
+            if (!sort.isEmpty()) {
+                request.sort(sort);
+            }
 
             List<NamedValue<HighlightField>> fields = highlightFields.stream()
                     .map(field -> NamedValue.of(

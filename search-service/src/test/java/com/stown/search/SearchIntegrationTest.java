@@ -1,6 +1,7 @@
 package com.stown.search;
 
 import com.stown.search.api.SearchResponse;
+import com.stown.search.api.SearchResultItem;
 import com.stown.search.domain.AttachmentMetadata;
 import com.stown.search.domain.MessageDocument;
 import com.stown.search.index.SearchDocument;
@@ -105,6 +106,8 @@ class SearchIntegrationTest {
                         .sizeBytes(2048L)
                         .build()))
                 .createdAt(Instant.now())
+                .holdCount(1)
+                .dispositionStatus("RETAINED")
                 .build());
 
         publishMessageIngested(eventId, messageId);
@@ -114,15 +117,57 @@ class SearchIntegrationTest {
         assertThat(indexed.getSubject()).isEqualTo("Project Falcon merger agreement");
         assertThat(indexed.getAttachmentCount()).isEqualTo(1);
         assertThat(indexed.getAttachmentFilenames()).containsExactly("merger-agreement.pdf");
+        assertThat(indexed.getHoldCount()).isEqualTo(1);
+        assertThat(indexed.getDispositionStatus()).isEqualTo("RETAINED");
 
         SearchResponse response = awaitSearchHit(messageId);
         assertThat(response.total()).isGreaterThanOrEqualTo(1);
+        assertThat(response.sort()).isEqualTo("relevance");
         assertThat(response.results()).anySatisfy(result -> {
             assertThat(result.messageId()).isEqualTo(messageId);
             assertThat(result.communicationType()).isEqualTo("EMAIL");
             assertThat(result.sender()).isEqualTo("alice@example.com");
             assertThat(result.snippet()).isNotBlank();
+            assertThat(result.onHold()).isTrue();
+            assertThat(result.dispositionStatus()).isEqualTo("RETAINED");
         });
+
+        // The same message must survive the narrowing filters and be excluded by
+        // their negation, which proves the filters reach Elasticsearch.
+        assertThat(messageIds("/api/search?q=merger%20agreement"
+                + "&onHold=true"
+                + "&hasAttachments=true"
+                + "&dispositionStatus=RETAINED"
+                + "&recipient=bob@example.com"
+                + "&after=2026-09-01T00:00:00Z"
+                + "&before=2026-09-30T00:00:00Z"
+                + "&sort=newest")).contains(messageId);
+
+        assertThat(messageIds("/api/search?q=merger%20agreement&onHold=false")).doesNotContain(messageId);
+        assertThat(messageIds("/api/search?q=merger%20agreement&after=2026-09-09T00:00:00Z"))
+                .doesNotContain(messageId);
+    }
+
+    @Test
+    void rejectsAnInvertedDateRange() {
+        ResponseEntity<String> response = restTemplate.getForEntity(
+                url("/api/search?q=merger&after=2026-09-08T00:00:00Z&before=2026-09-01T00:00:00Z"),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).contains("\"after\"");
+    }
+
+    @Test
+    void rejectsAnUnknownSort() {
+        ResponseEntity<String> response = restTemplate.getForEntity(
+                url("/api/search?q=merger&sort=subject"),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).contains("\"sort\"");
     }
 
     @Test
@@ -131,6 +176,12 @@ class SearchIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody()).contains("\"fieldErrors\"").contains("\"q\"");
+    }
+
+    private List<String> messageIds(String path) {
+        SearchResponse response = restTemplate.getForEntity(url(path), SearchResponse.class).getBody();
+        assertThat(response).isNotNull();
+        return response.results().stream().map(SearchResultItem::messageId).toList();
     }
 
     private void publishMessageIngested(String eventId, String messageId) {
