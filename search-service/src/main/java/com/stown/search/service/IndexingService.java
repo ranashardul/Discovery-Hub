@@ -4,6 +4,7 @@ import com.stown.search.domain.MessageDocument;
 import com.stown.search.domain.SearchIndexFailure;
 import com.stown.search.index.MessageIndexClient;
 import com.stown.search.index.SearchDocument;
+import com.stown.search.config.SearchProperties;
 import com.stown.search.index.SearchDocumentMapper;
 import com.stown.search.repository.MessageRepository;
 import com.stown.search.repository.SearchIndexFailureRepository;
@@ -22,6 +23,7 @@ public class IndexingService {
     private final SearchIndexFailureRepository failureRepository;
     private final SearchDocumentMapper documentMapper;
     private final MessageIndexClient indexClient;
+    private final SearchProperties properties;
 
     /**
      * Loads the message from MongoDB and (re)indexes it. Indexing uses the
@@ -66,8 +68,59 @@ public class IndexingService {
         }
     }
 
+    /**
+     * Removes a disposed message from the index.
+     *
+     * <p>Disposition is the end of a message's life: ingestion has already
+     * deleted it from MongoDB and purged its attachments, so leaving the
+     * Elasticsearch document in place would keep the subject and body
+     * searchable after the record was legally destroyed.
+     *
+     * <p>The event is delivered at least once, so this is idempotent -
+     * deleting an absent document is a success, not an error. Any outstanding
+     * failure ledger entry is dropped at the same time: the message can never
+     * be indexed again, so retrying it forever would be pointless.
+     */
+    public void removeMessage(String messageId, String eventId, String reason) {
+        long startedAt = System.nanoTime();
+
+        try {
+            boolean deleted = indexClient.delete(messageId);
+            failureRepository.deleteById(messageId);
+
+            long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L;
+            log.info(
+                    "Disposed message removed from index messageId={} eventId={} reason={} "
+                            + "index={} documentDeleted={} elapsedMs={}",
+                    messageId,
+                    eventId,
+                    reason,
+                    indexClient.indexName(),
+                    deleted,
+                    elapsedMs
+            );
+        } catch (Exception exception) {
+            log.error(
+                    "Failed to remove disposed message messageId={} eventId={} reason={} index={} reason2={}",
+                    messageId,
+                    eventId,
+                    reason,
+                    indexClient.indexName(),
+                    exception.getMessage()
+            );
+
+            throw exception instanceof RuntimeException runtimeException
+                    ? runtimeException
+                    : new IllegalStateException(exception);
+        }
+    }
+
     public long pendingFailureCount() {
-        return failureRepository.countByResolvedFalse();
+        return failureRepository.countByResolvedFalseAndAbandonedFalse();
+    }
+
+    public long abandonedFailureCount() {
+        return failureRepository.countByAbandonedTrue();
     }
 
     private void markResolved(String messageId) {
@@ -75,6 +128,10 @@ public class IndexingService {
             if (!failure.isResolved()) {
                 failure.setResolved(true);
                 failure.setResolvedAt(Instant.now());
+                // A success clears abandonment: the message is indexed, so the
+                // entry is history rather than an outstanding problem.
+                failure.setAbandoned(false);
+                failure.setAbandonedAt(null);
                 failureRepository.save(failure);
             }
         });
@@ -97,6 +154,22 @@ public class IndexingService {
             failure.setLastFailedAt(now);
             failure.setResolved(false);
             failure.setResolvedAt(null);
+
+            // Past the cap the entry stops being retried. Without this a
+            // message that can never succeed - one already disposed from
+            // MongoDB, say - is retried on every reconciliation cycle forever
+            // and pendingFailures grows without bound.
+            int maxAttempts = properties.getFailureMaxAttempts();
+            if (maxAttempts > 0 && failure.getAttempts() >= maxAttempts && !failure.isAbandoned()) {
+                failure.setAbandoned(true);
+                failure.setAbandonedAt(now);
+                log.error(
+                        "Abandoning message after repeated indexing failures messageId={} attempts={} lastError={}",
+                        messageId,
+                        failure.getAttempts(),
+                        failure.getLastError()
+                );
+            }
 
             failureRepository.save(failure);
         } catch (Exception recordingFailure) {

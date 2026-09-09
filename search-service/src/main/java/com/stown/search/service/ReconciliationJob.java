@@ -19,6 +19,12 @@ import java.util.List;
  * Safety net for the &lt;30s searchability target: retries recorded indexing
  * failures and back-fills messages that exist in MongoDB but are missing from
  * Elasticsearch (for instance after an event was lost).
+ *
+ * <p>The back-fill deliberately looks only at the most recent
+ * {@code reconcile-batch-size} messages. It exists to close small, fresh gaps
+ * cheaply on every cycle, not to populate an index from scratch - scanning the
+ * whole collection every minute would be wasteful and would still lag on a
+ * large corpus. Use {@link ReindexService} to walk the entire collection.
  */
 @Slf4j
 @Component
@@ -47,7 +53,7 @@ public class ReconciliationJob {
     private int retryRecordedFailures() {
         List<SearchIndexFailure> failures;
         try {
-            failures = failureRepository.findByResolvedFalse(
+            failures = failureRepository.findByResolvedFalseAndAbandonedFalse(
                     PageRequest.of(0, properties.getReconcileBatchSize(), Sort.by("lastFailedAt"))
             );
         } catch (Exception exception) {

@@ -9,7 +9,9 @@ import java.util.List;
 public interface SearchIndexFailureRepository
         extends MongoRepository<SearchIndexFailure, String> {
 
-    List<SearchIndexFailure> findByResolvedFalse(Pageable pageable);
+    List<SearchIndexFailure> findByResolvedFalseAndAbandonedFalse(Pageable pageable);
 
-    long countByResolvedFalse();
+    long countByResolvedFalseAndAbandonedFalse();
+
+    long countByAbandonedTrue();
 }

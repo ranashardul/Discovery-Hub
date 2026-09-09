@@ -61,6 +61,11 @@ app:
     snippet-length: ${SEARCH_SNIPPET_LENGTH:240}
     topic: ${SEARCH_TOPIC:message.ingested}
     dead-letter-topic: ${SEARCH_DEAD_LETTER_TOPIC:message.ingested.dlt}
+    disposed-topic: ${SEARCH_DISPOSED_TOPIC:message.disposed}
+    disposed-dead-letter-topic: ${SEARCH_DISPOSED_DEAD_LETTER_TOPIC:message.disposed.dlt}
+    disposed-consumer-group: ${SEARCH_DISPOSED_CONSUMER_GROUP:search-service-disposed}
+    failure-max-attempts: ${SEARCH_FAILURE_MAX_ATTEMPTS:10}
+    reindex-batch-size: ${SEARCH_REINDEX_BATCH_SIZE:500}
     retry-attempts: ${SEARCH_RETRY_ATTEMPTS:3}
     retry-initial-interval-ms: ${SEARCH_RETRY_INITIAL_INTERVAL_MS:1000}
     retry-multiplier: ${SEARCH_RETRY_MULTIPLIER:2.0}

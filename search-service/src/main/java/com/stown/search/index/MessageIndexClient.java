@@ -1,8 +1,10 @@
 package com.stown.search.index;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.Result;
 import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
+import co.elastic.clients.elasticsearch.core.DeleteResponse;
 import co.elastic.clients.elasticsearch.core.GetResponse;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.HighlightField;
@@ -74,6 +76,7 @@ public class MessageIndexClient {
                             .properties("indexedAt", property -> property.date(date -> date))
                             .properties("attachmentCount", property -> property.integer(integer -> integer))
                             .properties("holdCount", property -> property.integer(integer -> integer))
+                            .properties("holdIds", property -> property.keyword(keyword -> keyword))
                             .properties("dispositionStatus", property -> property.keyword(keyword -> keyword))));
 
             log.info("Created Elasticsearch index index={}", index);
@@ -106,6 +109,22 @@ public class MessageIndexClient {
         );
 
         return response.found() ? response.source() : null;
+    }
+
+    /**
+     * Removes a document by id. Disposition events are delivered at least once,
+     * so deleting an absent document is treated as success rather than an
+     * error.
+     *
+     * @return true when a document was actually removed
+     */
+    public boolean delete(String messageId) throws IOException {
+        ensureIndex();
+        DeleteResponse response = elasticsearchClient.delete(request -> request
+                .index(indexName())
+                .id(messageId));
+
+        return response.result() == Result.Deleted;
     }
 
     public boolean exists(String messageId) throws IOException {
