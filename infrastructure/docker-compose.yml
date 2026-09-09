@@ -121,13 +121,22 @@ services:
       KAFKA_TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-3}
       KAFKA_LISTENER_CONCURRENCY: ${KAFKA_LISTENER_CONCURRENCY:-3}
       S3_BUCKET: ${S3_BUCKET:-discovery-hub-attachments}
-      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      # Single dash: substitute the default only when the variable is unset.
+      # An explicitly empty value means "use real AWS S3", and ":-" would
+      # wrongly override it with the MinIO endpoint.
+      S3_ENDPOINT: ${S3_ENDPOINT-http://minio:9000}
       S3_PATH_STYLE_ACCESS: ${S3_PATH_STYLE_ACCESS:-true}
       S3_CREATE_BUCKET: ${S3_CREATE_BUCKET:-true}
-      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9000}
+      # Empty means "build the standard https bucket URL", so single dash again.
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL-http://localhost:9000}
       AWS_REGION: ${AWS_REGION:-ap-south-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minioadmin}}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}
+      # Temporary credentials (SSO, assumed role, MFA) also need a session
+      # token. Uncomment this line in that case. It stays commented by default
+      # because an empty token would be sent as an empty security-token header
+      # and rejected, breaking the long-term access-key path.
+      # AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN-}
       RETENTION_DEFAULT_DAYS: ${RETENTION_DEFAULT_DAYS:-365}
       OUTBOX_INTERVAL_MS: ${OUTBOX_INTERVAL_MS:-15000}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

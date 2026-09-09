@@ -9,6 +9,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import software.amazon.awssdk.core.exception.SdkException;
 
 import java.time.Instant;
 import java.util.List;
@@ -72,6 +73,26 @@ public class ApiExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, exception.getMessage(), request, List.of());
     }
 
+    /**
+     * The object store is a hard dependency for attachments. Surfacing it as
+     * 503 tells the caller the request is retryable, rather than hiding an
+     * infrastructure or credentials problem behind a generic 500.
+     */
+    @ExceptionHandler(SdkException.class)
+    public ResponseEntity<ApiErrorResponse> handleStorageUnavailable(
+            SdkException exception,
+            HttpServletRequest request
+    ) {
+        log.error("Attachment storage failure on {}", request.getRequestURI(), exception);
+
+        return build(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Attachment storage is unavailable: " + rootMessage(exception),
+                request,
+                List.of()
+        );
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiErrorResponse> handleUnexpected(
             Exception exception,
@@ -85,6 +106,19 @@ public class ApiExceptionHandler {
                 request,
                 List.of()
         );
+    }
+
+    /** First line of the underlying message, without the SDK request IDs. */
+    private String rootMessage(Throwable throwable) {
+        String message = throwable.getMessage();
+
+        if (message == null || message.isBlank()) {
+            return throwable.getClass().getSimpleName();
+        }
+
+        int marker = message.indexOf(" (Service:");
+
+        return marker > 0 ? message.substring(0, marker) : message;
     }
 
     private ResponseEntity<ApiErrorResponse> build(

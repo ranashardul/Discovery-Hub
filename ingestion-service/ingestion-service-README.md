@@ -589,6 +589,14 @@ Leave `S3_ENDPOINT` empty for real AWS S3. Credentials come from the
 standard AWS chain (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
 instance profiles), so nothing is stored in source.
 
+`AWS_REGION` must match the bucket's region or S3 rejects requests with
+`PermanentRedirect`. The IAM identity needs `s3:PutObject`,
+`s3:GetObject` (the server-side copy reads the source object) and
+`s3:DeleteObject` (removing the staged copy).
+
+Retrieval, the full IAM policy and recommended archival bucket settings
+are documented in `../docs/s3-archival.md`.
+
 ## Reliable Publication
 
 `message.ingested` is published from an outbox marker written together

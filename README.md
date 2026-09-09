@@ -50,6 +50,7 @@ Corpus generator / Angular UI
   `export-audit-service/` Export & Audit Service (Java 21, Boot 4)
   `corpus-generator/`    Python synthetic-corpus generator
   `infrastructure/`      Docker Compose stack
+  `docs/`                S3 archival and retrieval guide
   `.env.example`         Every configuration variable, with placeholders
 
 ## Quick Start
@@ -185,7 +186,14 @@ MONGODB_URI=mongodb+srv://<username>:<password>@<cluster-host>/legal_discovery?r
 
 For real AWS S3 instead of MinIO, leave `S3_ENDPOINT` empty and supply
 `S3_BUCKET`, `AWS_REGION` and credentials through the standard AWS
-chain.
+chain. `AWS_REGION` must match the bucket, otherwise S3 rejects the
+request with `PermanentRedirect`.
+
+Attachment binaries are archived in S3 and MongoDB holds only the
+metadata and object location. See `docs/s3-archival.md` for the object
+layout, the required IAM policy, how to retrieve files (CLI, presigned
+URLs, bulk case export), checksum verification and recommended bucket
+settings for an archival bucket.
 
 ## Tests
 
