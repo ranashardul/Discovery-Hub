@@ -2,6 +2,7 @@ package com.stown.search.api;
 
 import com.stown.search.config.SearchProperties;
 import com.stown.search.index.SearchDocument;
+import com.stown.search.service.ReindexService;
 import com.stown.search.service.SearchCriteria;
 import com.stown.search.service.SearchService;
 import lombok.RequiredArgsConstructor;
@@ -9,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class SearchController {
 
     private final SearchService searchService;
+    private final ReindexService reindexService;
     private final SearchProperties properties;
 
     @GetMapping
@@ -69,5 +72,21 @@ public class SearchController {
     @GetMapping("/stats")
     public ResponseEntity<SearchStatsResponse> stats() {
         return ResponseEntity.ok(searchService.stats());
+    }
+
+    /**
+     * Rebuilds the index from MongoDB. Needed to populate an index from a
+     * database that already holds messages, and after any mapping change.
+     *
+     * <p>Synchronous on purpose: the caller is an operator who wants the
+     * counts, and returning immediately would hide failures. Expect it to take
+     * a while on a large corpus.
+     */
+    @PostMapping("/reindex")
+    public ResponseEntity<ReindexResponse> reindex(
+            @RequestParam(name = "force", required = false, defaultValue = "false") boolean force
+    ) {
+        log.info("Reindex requested force={}", force);
+        return ResponseEntity.ok(reindexService.reindexAll(force));
     }
 }
