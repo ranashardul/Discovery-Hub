@@ -214,8 +214,7 @@ class SearchIntegrationTest {
         );
         publishMessageDisposed(UUID.randomUUID().toString(), messageId, "RETENTION");
 
-        awaitAbsentFromIndex(messageId);
-        assertThat(messageIds("/api/search?q=disposition")).doesNotContain(messageId);
+        awaitAbsentFromIndex(messageId, "disposition");
     }
 
     /**
@@ -285,6 +284,49 @@ class SearchIntegrationTest {
         assertThat(messageIds("/api/search?q=backfill&onHold=true")).contains(messageId);
     }
 
+    /**
+     * The second line of defence behind the disposition listener. If a
+     * message.disposed event never reaches this service - dropped, or published
+     * to a broker it does not consume, which happens when a shared database is
+     * written by another environment - the document would otherwise stay
+     * searchable forever after the record was destroyed.
+     */
+    @Test
+    void reconciliationRemovesDocumentsWhoseMessageIsGone() {
+        String messageId = UUID.randomUUID().toString();
+
+        mongoTemplate.save(MessageDocument.builder()
+                .id(messageId)
+                .deduplicationKey("e".repeat(64))
+                .communicationType("EMAIL")
+                .sender("orphan@example.com")
+                .recipients(List.of("reviewer@example.com"))
+                .subject("Orphan sweep candidate")
+                .body("Indexed, then deleted from MongoDB without any disposition event.")
+                .messageTimestamp(Instant.parse("2026-09-08T03:00:00Z"))
+                .createdAt(Instant.now())
+                .build());
+
+        publishMessageIngested(UUID.randomUUID().toString(), messageId);
+        awaitIndexedDocument(messageId);
+
+        // Delete from MongoDB and publish nothing: exactly the case the
+        // disposition listener cannot see.
+        mongoTemplate.remove(
+                org.springframework.data.mongodb.core.query.Query.query(
+                        org.springframework.data.mongodb.core.query.Criteria.where("_id").is(messageId)
+                ),
+                MessageDocument.class
+        );
+
+        assertThat(restTemplate.getForEntity(
+                url("/api/search/messages/" + messageId), String.class
+        ).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        // The scheduled job runs every 3s in this context.
+        awaitAbsentFromIndex(messageId, "orphan");
+    }
+
     private List<String> messageIds(String path) {
         SearchResponse response = restTemplate.getForEntity(url(path), SearchResponse.class).getBody();
         assertThat(response).isNotNull();
@@ -301,14 +343,25 @@ class SearchIntegrationTest {
         publish("message.disposed", messageId, payload);
     }
 
-    private void awaitAbsentFromIndex(String messageId) {
+    /**
+     * Waits until the document is gone from both the by-id lookup and full
+     * text search.
+     *
+     * <p>Both are needed. A get by id is realtime and sees a delete straight
+     * away, while search only reflects it after the next refresh, so asserting
+     * on the id alone passes while the message is still returned by a query.
+     */
+    private void awaitAbsentFromIndex(String messageId, String query) {
         await(() -> {
-            ResponseEntity<String> response = restTemplate.getForEntity(
+            ResponseEntity<String> byId = restTemplate.getForEntity(
                     url("/api/search/messages/" + messageId),
                     String.class
             );
-            return response.getStatusCode() == HttpStatus.NOT_FOUND ? "gone" : null;
-        }, "message " + messageId + " was still indexed after disposition");
+            if (byId.getStatusCode() != HttpStatus.NOT_FOUND) {
+                return null;
+            }
+            return messageIds("/api/search?q=" + query).contains(messageId) ? null : "gone";
+        }, "message " + messageId + " was still indexed after removal");
     }
 
     private void publish(String topic, String key, String payload) {

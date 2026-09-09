@@ -11,6 +11,16 @@ public class SearchProperties {
     private long reconcileIntervalMs = 60_000L;
     private int reconcileBatchSize = 100;
     private boolean reconcileBackfillEnabled = true;
+
+    /**
+     * Removes documents whose message no longer exists in MongoDB. Guards
+     * against a disposition event that never arrived leaving destroyed content
+     * searchable.
+     */
+    private boolean orphanSweepEnabled = true;
+
+    /** Documents examined per sweep; the cursor resumes on the next cycle. */
+    private int orphanSweepBatchSize = 500;
     private int maxPageSize = 100;
     private int snippetLength = 240;
     private String topic = "message.ingested";

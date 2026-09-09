@@ -57,6 +57,8 @@ app:
     reconcile-interval-ms: ${SEARCH_RECONCILE_INTERVAL_MS:60000}
     reconcile-batch-size: ${SEARCH_RECONCILE_BATCH_SIZE:100}
     reconcile-backfill-enabled: ${SEARCH_RECONCILE_BACKFILL_ENABLED:true}
+    orphan-sweep-enabled: ${SEARCH_ORPHAN_SWEEP_ENABLED:true}
+    orphan-sweep-batch-size: ${SEARCH_ORPHAN_SWEEP_BATCH_SIZE:500}
     max-page-size: ${SEARCH_MAX_PAGE_SIZE:100}
     snippet-length: ${SEARCH_SNIPPET_LENGTH:240}
     topic: ${SEARCH_TOPIC:message.ingested}

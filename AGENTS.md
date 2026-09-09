@@ -194,6 +194,12 @@ reverting the commit is not sufficient.
   `createdAt`, so it cannot repair gaps in older data. This is deliberate — it
   is a cheap safety net for fresh gaps. To populate or rebuild an index, use
   `POST /api/search/reindex`, which walks the whole collection.
+- **A shared database with separate Kafka brokers causes index drift.** If one
+  environment deletes a message from a shared MongoDB but publishes
+  `message.disposed` to a broker the search service does not consume, the
+  document survives in Elasticsearch. The orphan sweep in `ReconciliationJob`
+  cleans this up within a full pass of the index, but the underlying
+  arrangement is worth avoiding.
 - **No authentication, authorisation or tenant isolation** on any service.
   `POST /api/search/reindex` is unauthenticated and expensive, so it should not
   be exposed publicly as-is.

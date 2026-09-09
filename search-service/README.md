@@ -317,6 +317,8 @@ Mirrors ingestion-service:
 
 | `SEARCH_DISPOSED_TOPIC`         | `message.disposed`                               | Disposition topic                              |
 | `SEARCH_FAILURE_MAX_ATTEMPTS`   | `10`                                             | Indexing attempts before a failure is abandoned |
+| `SEARCH_ORPHAN_SWEEP_ENABLED`   | `true`                                           | Delete documents whose message is gone         |
+| `SEARCH_ORPHAN_SWEEP_BATCH_SIZE`| `500`                                            | Documents examined per sweep (capped at 10000) |
 | `SEARCH_REINDEX_BATCH_SIZE`     | `500`                                            | Page size used when walking MongoDB            |
 
 Additional tunables (all optional): `SEARCH_RECONCILE_BATCH_SIZE` (100),
@@ -345,6 +347,15 @@ ever hardcoded.
   failures and back-fills up to 100 messages that exist in MongoDB but are
   missing from Elasticsearch. The back-fill is a safety net for small, fresh
   gaps, not a way to populate an index — use the reindex endpoint for that.
+- **Orphan sweep**: the same job walks the index a batch per cycle and deletes
+  documents whose message no longer exists in MongoDB. The disposition listener
+  only removes what it hears about, so a dropped event — or a deletion made
+  against a shared database by a process publishing to a different broker —
+  would otherwise leave destroyed content permanently searchable. Deletes only
+  ids MongoDB positively reported as absent; if the lookup itself fails the
+  sweep aborts without deleting anything, so a database error is never mistaken
+  for "these messages were disposed". Disable with
+  `SEARCH_ORPHAN_SWEEP_ENABLED=false`.
 - **Abandonment**: after `SEARCH_FAILURE_MAX_ATTEMPTS` a ledger entry stops
   being retried and is counted separately in `/api/search/stats`. Without this
   a message that can never be indexed — one already disposed from MongoDB —
