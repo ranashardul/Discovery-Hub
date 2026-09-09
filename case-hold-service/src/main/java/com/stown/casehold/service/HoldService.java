@@ -14,6 +14,7 @@ import com.stown.casehold.domain.HoldCriteria;
 import com.stown.casehold.domain.HoldEntity;
 import com.stown.casehold.domain.HoldScope;
 import com.stown.casehold.domain.HoldStatus;
+import com.stown.casehold.domain.MessageDocument;
 import com.stown.casehold.messaging.EventOutboxWriter;
 import com.stown.casehold.messaging.HoldCreatedEvent;
 import com.stown.casehold.messaging.HoldReleasedEvent;
@@ -29,6 +30,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -40,6 +42,7 @@ public class HoldService {
     private final HoldRepository holdRepository;
     private final HoldCommunicationRepository holdCommunicationRepository;
     private final CaseRepository caseRepository;
+    private final MessageLookupService messageLookupService;
     private final EventOutboxWriter outbox;
 
     @Transactional
@@ -170,10 +173,31 @@ public class HoldService {
         List<HoldCommunicationEntity> comms =
                 holdCommunicationRepository.findByHoldIdOrderByCreatedAtAsc(holdId);
 
+        Map<String, MessageDocument> messages = messageLookupService.findByIds(
+                comms.stream().map(HoldCommunicationEntity::getCommunicationId).toList()
+        );
+
+        List<HoldCommunicationsResponse.HoldCommunicationItem> items = comms.stream()
+                .map(entity -> toItem(entity, messages.get(entity.getCommunicationId())))
+                .toList();
+
+        long unresolved = items.stream()
+                .filter(item -> !item.message().resolved())
+                .count();
+
+        // A hold is only truly in force once ingestion-service has projected it
+        // onto the message data; holdCount > 0 is that confirmation.
+        long enforced = items.stream()
+                .filter(item -> item.message().resolved())
+                .filter(item -> item.message().holdCount() != null && item.message().holdCount() > 0)
+                .count();
+
         return new HoldCommunicationsResponse(
                 holdId,
-                comms.size(),
-                comms.stream().map(HoldService::toItem).toList()
+                items.size(),
+                unresolved,
+                enforced,
+                items
         );
     }
 
@@ -285,12 +309,14 @@ public class HoldService {
     }
 
     private static HoldCommunicationsResponse.HoldCommunicationItem toItem(
-            HoldCommunicationEntity entity
+            HoldCommunicationEntity entity,
+            MessageDocument message
     ) {
         return new HoldCommunicationsResponse.HoldCommunicationItem(
                 entity.getCommunicationId(),
                 entity.getCommunicationType(),
-                entity.getCreatedAt()
+                entity.getCreatedAt(),
+                CommunicationDetails.from(message)
         );
     }
 
