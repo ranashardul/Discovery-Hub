@@ -50,7 +50,7 @@ Corpus generator / Angular UI
   `export-audit-service/` Export & Audit Service (Java 21, Boot 4)
   `corpus-generator/`    Python synthetic-corpus generator
   `infrastructure/`      Docker Compose stack
-  `docs/`                S3 archival and retrieval guide
+  `docs/`                S3 archival, retention and legal-hold guides
   `.env.example`         Every configuration variable, with placeholders
 
 ## Quick Start
@@ -207,10 +207,37 @@ cd export-audit-service && mvn test -Dgroups=integration -Dexcluded.test.groups=
 
 Integration tests use Testcontainers and require Docker.
 
+## Retention and Legal Holds
+
+Messages carry a retention period resolved per communication type at
+ingestion. A scheduled process deletes those past retention from MongoDB and
+S3, **except any message under legal hold**, and records every run.
+
+``` bash
+# retention countdown and hold state for one message
+curl "http://localhost:8081/api/ingestion/messages/<messageId>/retention"
+
+# what the last runs deleted and skipped
+curl "http://localhost:8081/api/ingestion/disposition/runs?limit=5"
+
+# deleting a held message is refused with 409
+curl -X DELETE "http://localhost:8081/api/ingestion/messages/<messageId>"
+```
+
+Disposition is **off by default** and a period shorter than 24 hours refuses
+to start unless explicitly allowed, because a demo setting reaching real data
+would destroy it. Holds are placed through the case-hold service and reach
+ingestion as `case-hold.events`.
+
+See `docs/retention-and-holds.md` for the configuration, the one-minute demo
+and the verification commands.
+
 ## Further Reading
 
--   `ingestion-service/ingestion-service-README.md`
--   `ingestion-service/discovery-hub-project-status.md`
+-   `docs/retention-and-holds.md`
+-   `docs/s3-archival.md`
+-   `ingestion-service/README.md` — architecture, API reference, code guide
+-   `ingestion-service/ingestion-service-run.md` — run book
 -   `search-service/README.md`
 -   `Case-hold-service-readme.md`
 -   `export-audit-service/README.md`
