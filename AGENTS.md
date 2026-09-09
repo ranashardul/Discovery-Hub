@@ -21,16 +21,22 @@ IngestionWorker  --> MongoDB legal_discovery.messages
         |
         v
 Kafka: message.ingested        (published from an outbox on the message document)
+Kafka: message.disposed        (published after retention/legal disposition deletes it)
         |
         v
-search-service  :8082          consumes the event, reads the message from Mongo,
-        |                       indexes it into Elasticsearch
+search-service  :8082          message.ingested -> read from Mongo, index it
+        |                       message.disposed -> delete the document
         v
 Elasticsearch index "messages"  :9200
         |
         v
 GET /api/search  :8082
 ```
+
+Other services: **case-hold-service** :8083 (PostgreSQL, publishes
+`case-hold.events`, which ingestion projects onto messages as `holdIds` /
+`holdCount` / `dispositionStatus`) and **export-audit-service** :8084, which
+owns presigned S3 download URLs.
 
 Ingestion does **not** write to Elasticsearch. The search service owns its own
 projection.
@@ -39,8 +45,10 @@ projection.
 
 | Path | Contents |
 |------|----------|
-| `ingestion-service/` | Ingestion API + async worker (port 8081) |
+| `ingestion-service/` | Ingestion API + async worker, retention/disposition (port 8081) |
 | `search-service/` | Elasticsearch projection + search API (port 8082) |
+| `case-hold-service/` | Cases and legal holds, PostgreSQL (port 8083) |
+| `export-audit-service/` | Exports, audit trail, presigned S3 URLs (port 8084) |
 | `corpus-generator/` | Python synthetic corpus generator |
 | `infrastructure/` | Docker Compose stack |
 | `.env.example` | Configuration template |
@@ -129,8 +137,18 @@ field silently return nothing. Fix per environment:
 curl -X DELETE "http://localhost:9200/messages"
 ```
 
-MongoDB is the source of truth; `ReconciliationJob` back-fills the index within
-`SEARCH_RECONCILE_INTERVAL_MS` (default 60s).
+MongoDB is the source of truth. **Then rebuild it**, because reconciliation
+only back-fills the newest batch:
+
+```bash
+curl -X POST "http://localhost:8082/api/search/reindex"
+```
+
+**A database that already holds messages will not index itself.** Anything with
+`outboxStatus: PUBLISHED` has no further events coming, and the reconciliation
+back-fill looks only at the newest `reconcile-batch-size` documents. Point
+search at a shared cluster or a restored backup and you get the most recent
+handful of messages and nothing else, silently. Run the reindex endpoint.
 
 ## Conventions
 
@@ -172,21 +190,13 @@ reverting the commit is not sufficient.
 
 ## Known open items
 
-- **The search service has no delete path.** `MessageIndexClient` has no
-  `delete` operation, so a message removed from MongoDB stays searchable in
-  Elasticsearch indefinitely. This matters once archival/disposition starts
-  removing or tombstoning messages.
-- **The indexing failure ledger retries forever.** `ReconciliationJob` retries
-  every unresolved `search_index_failures` entry with no attempt cap and no
-  give-up path, so a message that no longer exists in MongoDB can never
-  resolve and `pendingFailures` grows without bound.
 - **Back-fill only scans the newest `reconcile-batch-size` messages** by
-  `createdAt`, so it cannot repair gaps in older data.
-- **No authentication, authorisation or tenant isolation** on either service.
-- **`holdCount` and `dispositionStatus` are inert.** Ingestion hardcodes
-  `holdCount(0)` and `dispositionStatus("ACTIVE")`; no service updates them
-  yet. The `onHold` search filter is implemented and tested but will always
-  return zero results for `onHold=true` until a case/hold service exists.
+  `createdAt`, so it cannot repair gaps in older data. This is deliberate — it
+  is a cheap safety net for fresh gaps. To populate or rebuild an index, use
+  `POST /api/search/reindex`, which walks the whole collection.
+- **No authentication, authorisation or tenant isolation** on any service.
+  `POST /api/search/reindex` is unauthenticated and expensive, so it should not
+  be exposed publicly as-is.
 - **Contracts are duplicated, not shared.** `MessageDocument`,
   `AttachmentMetadata` and `MessageIngestedEvent` exist as independent copies
   in both services. A field renamed in `ingestion-service` produces **no
