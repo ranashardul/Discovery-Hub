@@ -69,6 +69,15 @@ public abstract class AbstractIntegrationTest {
         // Keep the scheduled outbox sweep out of the way of assertions.
         registry.add("app.outbox.initial-delay-ms", () -> 2000);
         registry.add("app.outbox.interval-ms", () -> 2000);
+
+        // Retention tests drive disposition explicitly, so the scheduled job
+        // is disabled to keep runs deterministic. Short periods are permitted
+        // because that is exactly what is under test.
+        registry.add("app.retention.enabled", () -> false);
+        registry.add("app.retention.allow-short-retention", () -> true);
+        registry.add("app.retention.periods.EMAIL", () -> "2s");
+        registry.add("app.retention.periods.CHAT", () -> "2s");
+        registry.add("app.retention.default-period", () -> "2s");
     }
 
     protected static String kafkaBootstrapServers() {
