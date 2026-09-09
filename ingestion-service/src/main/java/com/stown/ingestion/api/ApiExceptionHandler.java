@@ -1,6 +1,8 @@
 package com.stown.ingestion.api;
 
+import com.stown.ingestion.service.HeldMessageDeletionException;
 import com.stown.ingestion.service.InvalidAttachmentException;
+import com.stown.ingestion.service.MessageNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -9,6 +11,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import software.amazon.awssdk.core.exception.SdkException;
 
 import java.time.Instant;
 import java.util.List;
@@ -53,13 +56,17 @@ public class ApiExceptionHandler {
         );
     }
 
-    @ExceptionHandler(IngestionRequestNotFoundException.class)
+    @ExceptionHandler({
+            IngestionRequestNotFoundException.class,
+            MessageNotFoundException.class
+    })
     public ResponseEntity<ApiErrorResponse> handleNotFound(
-            IngestionRequestNotFoundException exception,
+            RuntimeException exception,
             HttpServletRequest request
     ) {
         return build(HttpStatus.NOT_FOUND, exception.getMessage(), request, List.of());
     }
+
 
     @ExceptionHandler(MessageNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleMessageNotFound(
@@ -67,6 +74,30 @@ public class ApiExceptionHandler {
             HttpServletRequest request
     ) {
         return build(HttpStatus.NOT_FOUND, exception.getMessage(), request, List.of());
+
+    /**
+     * A legal hold blocks deletion. Answering 409 rather than 403 says the
+     * request is valid but conflicts with the current state of the resource,
+     * and the hold ids let the caller see what is protecting it.
+     */
+    @ExceptionHandler(HeldMessageDeletionException.class)
+    public ResponseEntity<ApiErrorResponse> handleHeldMessage(
+            HeldMessageDeletionException exception,
+            HttpServletRequest request
+    ) {
+        log.warn(
+                "Refused deletion of held message messageId={} holdCount={} holdIds={}",
+                exception.getMessageId(),
+                exception.getHoldCount(),
+                exception.getHoldIds()
+        );
+
+        String detail = exception.getHoldIds().isEmpty()
+                ? exception.getMessage()
+                : exception.getMessage() + "; holds: " + String.join(", ", exception.getHoldIds());
+
+        return build(HttpStatus.CONFLICT, detail, request, List.of());
+
     }
 
     @ExceptionHandler({
@@ -78,6 +109,26 @@ public class ApiExceptionHandler {
             HttpServletRequest request
     ) {
         return build(HttpStatus.BAD_REQUEST, exception.getMessage(), request, List.of());
+    }
+
+    /**
+     * The object store is a hard dependency for attachments. Surfacing it as
+     * 503 tells the caller the request is retryable, rather than hiding an
+     * infrastructure or credentials problem behind a generic 500.
+     */
+    @ExceptionHandler(SdkException.class)
+    public ResponseEntity<ApiErrorResponse> handleStorageUnavailable(
+            SdkException exception,
+            HttpServletRequest request
+    ) {
+        log.error("Attachment storage failure on {}", request.getRequestURI(), exception);
+
+        return build(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Attachment storage is unavailable: " + rootMessage(exception),
+                request,
+                List.of()
+        );
     }
 
     @ExceptionHandler(Exception.class)
@@ -93,6 +144,19 @@ public class ApiExceptionHandler {
                 request,
                 List.of()
         );
+    }
+
+    /** First line of the underlying message, without the SDK request IDs. */
+    private String rootMessage(Throwable throwable) {
+        String message = throwable.getMessage();
+
+        if (message == null || message.isBlank()) {
+            return throwable.getClass().getSimpleName();
+        }
+
+        int marker = message.indexOf(" (Service:");
+
+        return marker > 0 ? message.substring(0, marker) : message;
     }
 
     private ResponseEntity<ApiErrorResponse> build(

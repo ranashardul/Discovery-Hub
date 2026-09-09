@@ -74,15 +74,49 @@ Each event carries an `eventType` field in the payload (and an `event_type`
 message header) so consumers can route without type headers from the
 producer. The `eventId` (UUID) makes consumption idempotent.
 
-## Database
+## Databases
 
-PostgreSQL stores cases, holds, communication references and the outbox.
-Schema is managed by Flyway migrations in `src/main/resources/db/migration/`.
+**PostgreSQL** is the authoritative store for cases, holds, communication
+references and the event outbox. Schema is managed by Flyway migrations in
+`src/main/resources/db/migration/`.
 
 ``` text
 cases                  holds                  event_outbox
 case_communications    hold_communications
 ```
+
+**MongoDB** is read only. The service resolves each stored
+`communication_id` against the `messages` collection owned by
+ingestion-service so the API can return real message metadata — sender,
+subject, timestamp, attachment count — instead of a bare identifier. It never
+writes to MongoDB and `auto-index-creation` is disabled, because it owns no
+collection there.
+
+``` text
+PostgreSQL                          MongoDB (read only)
+case_communications                 messages
+  communication_id  ───────────────►  _id
+                                      sender, subject, messageTimestamp
+                                      holdCount, dispositionStatus
+```
+
+Set `MONGODB_URI` to a `mongodb+srv://` string to read from an Atlas cluster.
+
+### Resolved and unresolved references
+
+A reference that matches no message is still returned, with
+`message.resolved = false` and the rest of the detail null, and counted in
+`unresolvedCount`. Case and hold records are the legal artefacts and must stay
+readable even when a supplied identifier is wrong or the message store is
+unreachable, so a lookup failure degrades rather than failing the request.
+
+### Recorded versus enforced
+
+`GET /api/v1/holds/{holdId}/communications` returns `enforcedCount`: how many
+of the covered messages actually carry `holdCount > 0` in the message store.
+This service records a hold; ingestion-service enforces it by consuming
+`case-hold.events` and projecting `holdIds` onto each message. Comparing
+`total` with `enforcedCount` shows whether the projection has caught up.
 
 ## Configuration
 
@@ -94,6 +128,7 @@ All settings come from environment variables:
 | `POSTGRES_URI`             | `jdbc:postgresql://localhost:5432/case_hold` | JDBC URL       |
 | `POSTGRES_USER`            | `casehold`                       | DB user                    |
 | `POSTGRES_PASSWORD`        | `casehold`                       | DB password                |
+| `MONGODB_URI`              | `mongodb://localhost:27017/legal_discovery` | Read-only message store; accepts `mongodb+srv://` for Atlas |
 | `KAFKA_BOOTSTRAP_SERVERS`  | `localhost:9092`                 | Kafka brokers              |
 | `CASE_HOLD_TOPIC`          | `case-hold.events`               | Kafka event topic          |
 | `LOG_LEVEL`                | `INFO`                           | Log level for `com.stown`  |
@@ -110,15 +145,23 @@ All settings come from environment variables:
 # Tests (unit + context load)
 ./mvnw test
 
-# Integration tests (Testcontainers: PostgreSQL + Kafka)
+# Integration tests (Testcontainers: PostgreSQL + MongoDB + Kafka)
 ./mvnw test -Dgroups=integration -Dexcluded.test.groups=
 ```
+
+Integration tests are hermetic: they run against throwaway containers and
+never touch a shared cluster, so no Atlas credentials are needed.
 
 ## Design Principles
 
 - **Single Responsibility** — owns case and hold management only
 - **No ingestion or search** — those belong to Ingestion and Search services
-- **No message duplication** — stores only references to communications
+- **No message duplication** — stores only references to communications;
+  message metadata is read on demand and never copied into PostgreSQL, and the
+  message body is deliberately not mapped at all
+- **Read-only outside its own store** — writes only to PostgreSQL; MongoDB
+  access is read-only, matching how search-service and export-audit-service
+  read the same collection
 - **Transactional outbox** — events are never lost when Kafka is down
 - **Idempotent operations** — re-adding communications or re-releasing holds is safe
 - **Database ownership** — no other service accesses its PostgreSQL directly

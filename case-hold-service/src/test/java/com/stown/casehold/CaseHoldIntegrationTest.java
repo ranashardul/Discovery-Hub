@@ -356,6 +356,150 @@ class CaseHoldIntegrationTest extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
+    @Test
+    void resolvesCommunicationReferencesToRealMessageMetadata() {
+        String messageId = UUID.randomUUID().toString();
+        seedMessage(messageId, "priya.nair@example-bank.test",
+                "Sanction conditions - Meridian Textiles facility", 0);
+
+        CaseResponse created = post(
+                "/api/v1/cases",
+                """
+                { "caseName": "Enrichment Case", "description": "", "createdBy": "admin" }
+                """,
+                CaseResponse.class
+        ).getBody();
+        assertThat(created).isNotNull();
+
+        ResponseEntity<CaseCommunicationsResponse> response = post(
+                "/api/v1/cases/" + created.caseId() + "/communications",
+                """
+                {
+                  "communications": [
+                    { "communicationId": "%s", "communicationType": "EMAIL" }
+                  ],
+                  "addedBy": "admin"
+                }
+                """.formatted(messageId),
+                CaseCommunicationsResponse.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        CaseCommunicationsResponse body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.unresolvedCount()).isZero();
+        assertThat(body.added()).singleElement().satisfies(item -> {
+            assertThat(item.communicationId()).isEqualTo(messageId);
+            assertThat(item.message()).isNotNull();
+            assertThat(item.message().resolved()).isTrue();
+            assertThat(item.message().sender()).isEqualTo("priya.nair@example-bank.test");
+            assertThat(item.message().subject())
+                    .isEqualTo("Sanction conditions - Meridian Textiles facility");
+            assertThat(item.message().recipients())
+                    .containsExactly("arjun.mehta@example-bank.test");
+            assertThat(item.message().messageTimestamp())
+                    .isEqualTo(Instant.parse("2026-03-15T09:22:00Z"));
+            assertThat(item.message().attachmentCount()).isEqualTo(1);
+            assertThat(item.message().dispositionStatus()).isEqualTo("ACTIVE");
+        });
+    }
+
+    @Test
+    void flagsReferencesThatMatchNoMessage() {
+        CaseResponse created = post(
+                "/api/v1/cases",
+                """
+                { "caseName": "Unresolved Case", "description": "", "createdBy": "admin" }
+                """,
+                CaseResponse.class
+        ).getBody();
+        assertThat(created).isNotNull();
+
+        // "msg-1" is not a message identifier; the reference is still stored so
+        // the case record survives, but it is reported as unresolved.
+        ResponseEntity<CaseCommunicationsResponse> response = post(
+                "/api/v1/cases/" + created.caseId() + "/communications",
+                """
+                {
+                  "communications": [ { "communicationId": "msg-1" } ],
+                  "addedBy": "admin"
+                }
+                """,
+                CaseCommunicationsResponse.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        CaseCommunicationsResponse body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.unresolvedCount()).isEqualTo(1);
+        assertThat(body.added()).singleElement().satisfies(item -> {
+            assertThat(item.communicationId()).isEqualTo("msg-1");
+            assertThat(item.message().resolved()).isFalse();
+            assertThat(item.message().sender()).isNull();
+            assertThat(item.message().subject()).isNull();
+        });
+    }
+
+    @Test
+    void reportsWhetherAHoldIsEnforcedOnTheMessageData() {
+        // holdCount=2 mimics ingestion-service having projected two holds onto
+        // the message in response to case-hold.events.
+        String enforcedId = UUID.randomUUID().toString();
+        seedMessage(enforcedId, "ravi.iyer@example-bank.test", "AML alert - structuring pattern", 2);
+
+        // holdCount=0 means the projection has not been applied to this one.
+        String notEnforcedId = UUID.randomUUID().toString();
+        seedMessage(notEnforcedId, "meera.rao@example-bank.test", "LCR variance - March pack", 0);
+
+        CaseResponse created = post(
+                "/api/v1/cases",
+                """
+                { "caseName": "Enforcement Case", "description": "", "createdBy": "admin" }
+                """,
+                CaseResponse.class
+        ).getBody();
+        assertThat(created).isNotNull();
+
+        HoldResponse hold = post(
+                "/api/v1/cases/" + created.caseId() + "/holds",
+                """
+                {
+                  "name": "Preserve AML evidence",
+                  "reason": "Regulatory investigation",
+                  "createdBy": "admin",
+                  "communications": [
+                    { "communicationId": "%s", "communicationType": "EMAIL" },
+                    { "communicationId": "%s", "communicationType": "EMAIL" }
+                  ]
+                }
+                """.formatted(enforcedId, notEnforcedId),
+                HoldResponse.class
+        ).getBody();
+        assertThat(hold).isNotNull();
+
+        ResponseEntity<HoldCommunicationsResponse> response = get(
+                "/api/v1/holds/" + hold.holdId() + "/communications",
+                HoldCommunicationsResponse.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        HoldCommunicationsResponse body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.total()).isEqualTo(2);
+        assertThat(body.unresolvedCount()).isZero();
+        // Only the message carrying holdCount > 0 counts as enforced.
+        assertThat(body.enforcedCount()).isEqualTo(1);
+
+        assertThat(body.communications())
+                .filteredOn(item -> item.communicationId().equals(enforcedId))
+                .singleElement()
+                .satisfies(item -> {
+                    assertThat(item.message().resolved()).isTrue();
+                    assertThat(item.message().holdCount()).isEqualTo(2);
+                    assertThat(item.message().dispositionStatus()).isEqualTo("ON_HOLD");
+                });
+    }
+
     // --- helpers ---------------------------------------------------------
 
     private <T> ResponseEntity<T> post(String path, String body, Class<T> type) {

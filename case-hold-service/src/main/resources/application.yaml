@@ -5,6 +5,21 @@ spring:
   application:
     name: case-hold-service
 
+  # Read-only access to the `messages` collection owned by ingestion-service.
+  # Used to resolve communication references to real message metadata; this
+  # service never writes to MongoDB. Spring Boot 4 reads the connection URI
+  # from spring.mongodb.*; only Spring Data settings live under
+  # spring.data.mongodb.*. Set MONGODB_URI to an Atlas mongodb+srv:// string
+  # to read from a cluster.
+  mongodb:
+    uri: ${MONGODB_URI:mongodb://localhost:27017/legal_discovery}
+
+  data:
+    mongodb:
+      # This service owns no MongoDB collection, so it must never create or
+      # alter indexes on someone else's.
+      auto-index-creation: false
+
   datasource:
     url: ${POSTGRES_URI:jdbc:postgresql://localhost:5432/case_hold}
     username: ${POSTGRES_USER:casehold}

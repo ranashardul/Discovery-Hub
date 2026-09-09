@@ -121,15 +121,38 @@ services:
       KAFKA_TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-3}
       KAFKA_LISTENER_CONCURRENCY: ${KAFKA_LISTENER_CONCURRENCY:-3}
       S3_BUCKET: ${S3_BUCKET:-discovery-hub-attachments}
-      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      # Single dash: substitute the default only when the variable is unset.
+      # An explicitly empty value means "use real AWS S3", and ":-" would
+      # wrongly override it with the MinIO endpoint.
+      S3_ENDPOINT: ${S3_ENDPOINT-http://minio:9000}
       S3_PATH_STYLE_ACCESS: ${S3_PATH_STYLE_ACCESS:-true}
       S3_CREATE_BUCKET: ${S3_CREATE_BUCKET:-true}
-      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9000}
+      # Empty means "build the standard https bucket URL", so single dash again.
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL-http://localhost:9000}
       AWS_REGION: ${AWS_REGION:-ap-south-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minioadmin}}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}
-      RETENTION_DEFAULT_DAYS: ${RETENTION_DEFAULT_DAYS:-365}
+      # Temporary credentials (SSO, assumed role, MFA) also need a session
+      # token. Uncomment this line in that case. It stays commented by default
+      # because an empty token would be sent as an empty security-token header
+      # and rejected, breaking the long-term access-key path.
+      # AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN-}
       OUTBOX_INTERVAL_MS: ${OUTBOX_INTERVAL_MS:-15000}
+      # Retention and disposition (FR-5). Disposition deletes data, so it is
+      # off unless switched on. Periods are Spring Durations: 2555d, 1m, 30s.
+      DISPOSITION_ENABLED: ${DISPOSITION_ENABLED:-false}
+      DISPOSITION_DRY_RUN: ${DISPOSITION_DRY_RUN:-false}
+      RETENTION_EMAIL: ${RETENTION_EMAIL:-2555d}
+      RETENTION_CHAT: ${RETENTION_CHAT:-1095d}
+      RETENTION_DEFAULT: ${RETENTION_DEFAULT:-2555d}
+      RETENTION_MIN_PERIOD: ${RETENTION_MIN_PERIOD:-24h}
+      ALLOW_SHORT_RETENTION: ${ALLOW_SHORT_RETENTION:-false}
+      DISPOSITION_INTERVAL_MS: ${DISPOSITION_INTERVAL_MS:-60000}
+      DISPOSITION_BATCH_SIZE: ${DISPOSITION_BATCH_SIZE:-200}
+      DISPOSITION_MAX_DELETES: ${DISPOSITION_MAX_DELETES:-500}
+      PURGE_SWEEP_INTERVAL_MS: ${PURGE_SWEEP_INTERVAL_MS:-60000}
+      # Legal holds are consumed from the case-hold service's topic.
+      CASE_HOLD_TOPIC: ${CASE_HOLD_TOPIC:-case-hold.events}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health"]
@@ -202,12 +225,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mongodb:
+        condition: service_healthy
       kafka:
         condition: service_healthy
     environment:
       POSTGRES_URI: ${POSTGRES_URI:-jdbc:postgresql://postgres:5432/${POSTGRES_DB:-case_hold}}
       POSTGRES_USER: ${POSTGRES_USER:-casehold}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-casehold}
+      # Read-only: resolves communication references to real message metadata
+      # from the collection owned by ingestion-service. Point this at an Atlas
+      # mongodb+srv:// URI to read from a cluster.
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb:27017/legal_discovery}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:19092}
       CASE_HOLD_TOPIC: ${CASE_HOLD_TOPIC:-case-hold.events}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

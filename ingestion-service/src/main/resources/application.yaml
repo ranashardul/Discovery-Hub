@@ -68,8 +68,35 @@ app:
     message-prefix: messages
     public-base-url: ${S3_PUBLIC_BASE_URL:}
 
+  # Retention and disposition (PRD FR-5). Periods bind as Spring Durations, so
+  # "2555d" and "1m" are both valid; a demo needs no code change.
   retention:
-    default-days: ${RETENTION_DEFAULT_DAYS:365}
+    # Disposition deletes data, so it is opt-in per environment.
+    enabled: ${DISPOSITION_ENABLED:false}
+    # Report what would be deleted without deleting it.
+    dry-run: ${DISPOSITION_DRY_RUN:false}
+
+    periods:
+      EMAIL: ${RETENTION_EMAIL:2555d}   # 7 years
+      CHAT: ${RETENTION_CHAT:1095d}     # 3 years
+    default-period: ${RETENTION_DEFAULT:2555d}
+
+    # Refuses to start with a shorter period unless explicitly allowed, so a
+    # demo value cannot reach an environment holding real data.
+    min-period: ${RETENTION_MIN_PERIOD:24h}
+    allow-short-retention: ${ALLOW_SHORT_RETENTION:false}
+
+    batch-size: ${DISPOSITION_BATCH_SIZE:200}
+    max-deletes-per-run: ${DISPOSITION_MAX_DELETES:500}
+    disposition-interval-ms: ${DISPOSITION_INTERVAL_MS:60000}
+    purge-sweep-interval-ms: ${PURGE_SWEEP_INTERVAL_MS:60000}
+
+  # Legal holds are owned by the case-hold service; this service only consumes
+  # them. Its producer writes raw JSON with a StringSerializer, so the listener
+  # uses a dedicated container factory (see KafkaConfig).
+  case-hold:
+    topic: ${CASE_HOLD_TOPIC:case-hold.events}
+    consumer-group: ${CASE_HOLD_CONSUMER_GROUP:ingestion-service-holds}
 
   kafka:
     partitions: ${KAFKA_TOPIC_PARTITIONS:3}
