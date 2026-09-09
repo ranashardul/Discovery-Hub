@@ -1,5 +1,6 @@
 package com.stown.ingestion.worker;
 
+import com.stown.ingestion.domain.DispositionStatus;
 import com.stown.ingestion.domain.IngestionRequestDocument;
 import com.stown.ingestion.domain.IngestionStatus;
 import com.stown.ingestion.domain.MessageDocument;
@@ -10,15 +11,14 @@ import com.stown.ingestion.repository.IngestionRequestRepository;
 import com.stown.ingestion.repository.MessageRepository;
 import com.stown.ingestion.service.AttachmentStorageService;
 import com.stown.ingestion.service.OutboxPublisher;
+import com.stown.ingestion.service.RetentionPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,9 +37,7 @@ public class IngestionWorker {
     private final MessageRepository messageRepository;
     private final AttachmentStorageService attachmentStorageService;
     private final OutboxPublisher outboxPublisher;
-
-    @Value("${app.retention.default-days:365}")
-    private long retentionDays;
+    private final RetentionPolicy retentionPolicy;
 
     @KafkaListener(
             topics = "ingestion.requested",
@@ -141,9 +139,13 @@ public class IngestionWorker {
                         event.getAttachments()
                 ))
                 .createdAt(now)
-                .retentionUntil(now.plus(retentionDays, ChronoUnit.DAYS))
+                // Retention is resolved per communication type and stored, so
+                // the policy applied to this message stays auditable even if
+                // configuration changes later.
+                .retentionUntil(retentionPolicy.expiryFor(event.getCommunicationType(), now))
+                .holdIds(List.of())
                 .holdCount(0)
-                .dispositionStatus("ACTIVE")
+                .dispositionStatus(DispositionStatus.ACTIVE)
                 .outboxStatus(OutboxStatus.PENDING)
                 .outboxAttempts(0)
                 .build();
