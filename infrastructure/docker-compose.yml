@@ -235,6 +235,8 @@ services:
         condition: service_healthy
       case-hold-service:
         condition: service_healthy
+      ingestion-service:
+        condition: service_healthy
     environment:
       EXPORT_PORT: "8084"
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb:27017/legal_discovery}
@@ -243,6 +245,9 @@ services:
       KAFKA_LISTENER_CONCURRENCY: ${KAFKA_LISTENER_CONCURRENCY:-2}
       CASE_HOLD_BASE_URL: ${CASE_HOLD_BASE_URL:-http://case-hold-service:8083}
       CASE_HOLD_EVENTS_TOPIC: ${CASE_HOLD_TOPIC:-case-hold.events}
+      INGESTION_BASE_URL: ${INGESTION_BASE_URL:-http://ingestion-service:8081}
+      INGESTION_CONNECT_TIMEOUT_MS: ${INGESTION_CONNECT_TIMEOUT_MS:-2000}
+      INGESTION_READ_TIMEOUT_MS: ${INGESTION_READ_TIMEOUT_MS:-5000}
       S3_SOURCE_BUCKET: ${S3_SOURCE_BUCKET:-discovery-hub-attachments}
       S3_EXPORT_BUCKET: ${S3_EXPORT_BUCKET:-discovery-hub-exports}
       S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
@@ -255,10 +260,6 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8084/actuator/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 40s
       interval: 10s
       timeout: 5s
       retries: 10

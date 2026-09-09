@@ -87,10 +87,19 @@ app:
 
   case-hold:
     # Base URL of the Case & Hold service. Used to resolve evidence IDs for a
-    # case or a legal hold before fetching the actual messages from MongoDB.
+    # case or a legal hold before fetching the actual messages from ingestion.
     base-url: ${CASE_HOLD_BASE_URL:http://localhost:8083}
     # Kafka topic carrying Case & Hold domain events (case created, hold placed, etc.)
     events-topic: ${CASE_HOLD_EVENTS_TOPIC:case-hold.events}
+
+  ingestion:
+    # Base URL of the ingestion service read API. The export service fetches
+    # message content and attachment metadata by id from this API rather than
+    # reading the ingestion service's messages MongoDB collection directly, so
+    # each service owns its data (NFR-1).
+    base-url: ${INGESTION_BASE_URL:http://localhost:8081}
+    connect-timeout-ms: ${INGESTION_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${INGESTION_READ_TIMEOUT_MS:5000}
 
 logging:
   level:

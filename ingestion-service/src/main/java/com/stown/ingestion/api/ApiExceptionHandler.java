@@ -61,6 +61,14 @@ public class ApiExceptionHandler {
         return build(HttpStatus.NOT_FOUND, exception.getMessage(), request, List.of());
     }
 
+    @ExceptionHandler(MessageNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleMessageNotFound(
+            MessageNotFoundException exception,
+            HttpServletRequest request
+    ) {
+        return build(HttpStatus.NOT_FOUND, exception.getMessage(), request, List.of());
+    }
+
     @ExceptionHandler({
             InvalidAttachmentException.class,
             IllegalArgumentException.class

@@ -2,8 +2,8 @@ package com.stown.exportaudit.evidence;
 
 import com.stown.exportaudit.domain.MessageDocument;
 import com.stown.exportaudit.domain.ExportScope;
-import com.stown.exportaudit.repository.MessageRepository;
 import com.stown.exportaudit.service.CaseHoldClient;
+import com.stown.exportaudit.service.IngestionClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
@@ -12,22 +12,21 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * {@link EvidenceProvider} that resolves the communication IDs belonging to a
  * case or a legal hold through the Case & Hold service API, then fetches the
- * actual messages from the shared {@code messages} MongoDB collection by ID.
+ * actual message content from the ingestion service's read API.
  *
  * <p>This is the preferred provider now that the Case & Hold service exists.
  * It honours NFR-1 (no shared database schemas between services) by asking
- * Case & Hold for the authoritative list of evidence IDs rather than reading
- * the Case & Hold database directly.
- *
- * <p>The MongoDB read is still needed because the message content and
- * attachment metadata live in the ingestion service's {@code messages}
- * collection — but this provider only reads the specific IDs that Case & Hold
- * said belong to the case, not the entire corpus.
+ * Case & Hold for the authoritative list of evidence IDs and asking the
+ * ingestion service for the message content, rather than reading either
+ * service's database directly. The export service owns no copy of the
+ * {@code messages} collection.
  */
 @Slf4j
 @Component
@@ -36,7 +35,7 @@ import java.util.List;
 public class CaseHoldEvidenceProvider implements EvidenceProvider {
 
     private final CaseHoldClient caseHoldClient;
-    private final MessageRepository messageRepository;
+    private final IngestionClient ingestionClient;
 
     @Override
     public List<MessageDocument> findEvidence(EvidenceQuery query) {
@@ -62,11 +61,13 @@ public class CaseHoldEvidenceProvider implements EvidenceProvider {
             return List.of();
         }
 
-        List<MessageDocument> messages = new ArrayList<>();
-
-        for (String id : communicationIds) {
-            messageRepository.findById(id).ifPresent(messages::add);
-        }
+        // Fetch the message content from ingestion in a single batch call so
+        // large exports stay efficient (NFR-3) and the export service never
+        // reads the ingestion MongoDB collection directly (NFR-1). Copy into a
+        // mutable list so the sort below is safe regardless of the client's
+        // returned list implementation.
+        Set<String> idSet = new HashSet<>(communicationIds);
+        List<MessageDocument> messages = new ArrayList<>(ingestionClient.getMessages(idSet));
 
         // Keep the chronological order the manifest expects.
         messages.sort(Comparator.comparing(

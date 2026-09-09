@@ -7,15 +7,11 @@ import java.util.List;
 /**
  * Source of the evidence an export package is built from.
  *
- * <p><b>Assumption:</b> the Case & Hold service is not implemented yet in
- * this repository, so the canonical list of evidence items that belong to a
- * case or a legal-hold scope is not available from a dedicated API. The export
- * service therefore reads the evidence directly from the shared
- * {@code messages} MongoDB collection owned by the ingestion service, applying
- * the optional filters supplied with the export request. When the Case &
- * Hold service ships, swap {@link MongoEvidenceProvider} for an HTTP-backed
- * implementation that calls its evidence API; no other code needs to change
- * because everything downstream depends only on this interface.
+ * <p>The canonical list of evidence items that belong to a case or a legal-hold
+ * scope is resolved from the Case & Hold service, and the message content for
+ * those IDs is fetched from the ingestion service's read API. The export
+ * service never reads another service's database directly (NFR-1): it talks to
+ * well-defined HTTP APIs owned by the services that own the data.
  */
 public interface EvidenceProvider {
 
