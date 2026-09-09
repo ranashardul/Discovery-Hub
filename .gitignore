@@ -45,9 +45,6 @@ Thumbs.db
 *.log
 logs/
 
-### Local working notes (kept out of the repository) ###
-ingestion-service/RUNNING.md
-
 ### Local environment / secrets ###
 .env
 .env.*

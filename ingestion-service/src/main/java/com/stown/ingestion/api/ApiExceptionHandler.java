@@ -1,6 +1,8 @@
 package com.stown.ingestion.api;
 
+import com.stown.ingestion.service.HeldMessageDeletionException;
 import com.stown.ingestion.service.InvalidAttachmentException;
+import com.stown.ingestion.service.MessageNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -54,12 +56,39 @@ public class ApiExceptionHandler {
         );
     }
 
-    @ExceptionHandler(IngestionRequestNotFoundException.class)
+    @ExceptionHandler({
+            IngestionRequestNotFoundException.class,
+            MessageNotFoundException.class
+    })
     public ResponseEntity<ApiErrorResponse> handleNotFound(
-            IngestionRequestNotFoundException exception,
+            RuntimeException exception,
             HttpServletRequest request
     ) {
         return build(HttpStatus.NOT_FOUND, exception.getMessage(), request, List.of());
+    }
+
+    /**
+     * A legal hold blocks deletion. Answering 409 rather than 403 says the
+     * request is valid but conflicts with the current state of the resource,
+     * and the hold ids let the caller see what is protecting it.
+     */
+    @ExceptionHandler(HeldMessageDeletionException.class)
+    public ResponseEntity<ApiErrorResponse> handleHeldMessage(
+            HeldMessageDeletionException exception,
+            HttpServletRequest request
+    ) {
+        log.warn(
+                "Refused deletion of held message messageId={} holdCount={} holdIds={}",
+                exception.getMessageId(),
+                exception.getHoldCount(),
+                exception.getHoldIds()
+        );
+
+        String detail = exception.getHoldIds().isEmpty()
+                ? exception.getMessage()
+                : exception.getMessage() + "; holds: " + String.join(", ", exception.getHoldIds());
+
+        return build(HttpStatus.CONFLICT, detail, request, List.of());
     }
 
     @ExceptionHandler({

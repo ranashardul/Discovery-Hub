@@ -10,5 +10,13 @@ public enum IngestionStatus {
     RECEIVED,
     PROCESSING,
     INGESTED,
-    FAILED
+    FAILED,
+
+    /**
+     * The stored message was disposed after its retention expired, or through
+     * the delete API. The request is kept so that a re-submission is reported
+     * as disposed rather than silently deduplicated against a message that no
+     * longer exists.
+     */
+    DISPOSED
 }

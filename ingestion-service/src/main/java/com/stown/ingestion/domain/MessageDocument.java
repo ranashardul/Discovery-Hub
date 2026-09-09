@@ -52,9 +52,38 @@ public class MessageDocument {
     private List<AttachmentMetadata> attachments;
 
     private Instant createdAt;
+
+    /**
+     * When retention expires. Computed at ingestion from the policy for this
+     * communication type and stored, so the applied policy stays auditable
+     * per message rather than shifting when configuration changes.
+     */
+    @Indexed(name = "retentionUntil_idx")
     private Instant retentionUntil;
 
+    /**
+     * Identifiers of every legal hold currently covering this message,
+     * projected from {@code case-hold.events}.
+     *
+     * <p>A set rather than a counter: hold events are delivered at least once,
+     * so incrementing would double-count on redelivery, and a release event
+     * carries no message list, so the membership has to be recorded here.
+     */
+    @Indexed(name = "holdIds_idx")
+    private List<String> holdIds;
+
+    /**
+     * Number of active holds, derived from {@link #holdIds}.
+     *
+     * <p>Read directly by search-service, which keeps its own copy of this
+     * model with no compile-time link. The name and type must not change.
+     */
     private int holdCount;
+
+    /**
+     * {@code ACTIVE} or {@code ON_HOLD}. Also read and indexed by
+     * search-service as a keyword, so this stays a plain String.
+     */
     private String dispositionStatus;
 
     /**

@@ -137,8 +137,22 @@ services:
       # because an empty token would be sent as an empty security-token header
       # and rejected, breaking the long-term access-key path.
       # AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN-}
-      RETENTION_DEFAULT_DAYS: ${RETENTION_DEFAULT_DAYS:-365}
       OUTBOX_INTERVAL_MS: ${OUTBOX_INTERVAL_MS:-15000}
+      # Retention and disposition (FR-5). Disposition deletes data, so it is
+      # off unless switched on. Periods are Spring Durations: 2555d, 1m, 30s.
+      DISPOSITION_ENABLED: ${DISPOSITION_ENABLED:-false}
+      DISPOSITION_DRY_RUN: ${DISPOSITION_DRY_RUN:-false}
+      RETENTION_EMAIL: ${RETENTION_EMAIL:-2555d}
+      RETENTION_CHAT: ${RETENTION_CHAT:-1095d}
+      RETENTION_DEFAULT: ${RETENTION_DEFAULT:-2555d}
+      RETENTION_MIN_PERIOD: ${RETENTION_MIN_PERIOD:-24h}
+      ALLOW_SHORT_RETENTION: ${ALLOW_SHORT_RETENTION:-false}
+      DISPOSITION_INTERVAL_MS: ${DISPOSITION_INTERVAL_MS:-60000}
+      DISPOSITION_BATCH_SIZE: ${DISPOSITION_BATCH_SIZE:-200}
+      DISPOSITION_MAX_DELETES: ${DISPOSITION_MAX_DELETES:-500}
+      PURGE_SWEEP_INTERVAL_MS: ${PURGE_SWEEP_INTERVAL_MS:-60000}
+      # Legal holds are consumed from the case-hold service's topic.
+      CASE_HOLD_TOPIC: ${CASE_HOLD_TOPIC:-case-hold.events}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health"]
@@ -264,10 +278,6 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8084/actuator/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 40s
       interval: 10s
       timeout: 5s
       retries: 10
