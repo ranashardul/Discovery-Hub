@@ -67,15 +67,47 @@ class SearchCriteriaTest {
     }
 
     @Test
-    void rejectsMissingQuery() {
+    void rejectsARequestWithNeitherQueryNorFilters() {
+        // Paging the entire corpus is far more likely a mistake than an intent.
         assertThatThrownBy(() -> criteria(SearchRequest.builder()))
                 .isInstanceOf(InvalidSearchRequestException.class)
                 .hasMessageContaining("required");
     }
 
     @Test
-    void rejectsBlankQuery() {
+    void rejectsABlankQueryWithNoFilters() {
         assertThatThrownBy(() -> criteria(SearchRequest.builder().q("   ")))
+                .isInstanceOf(InvalidSearchRequestException.class)
+                .extracting(SearchCriteriaTest::fieldOf)
+                .isEqualTo("q");
+    }
+
+    @Test
+    void acceptsAFilterOnlyRequest() {
+        // "every message in this thread" has no text to match on.
+        SearchCriteria criteria = criteria(SearchRequest.builder().threadId("thread-1"));
+
+        assertThat(criteria.query()).isNull();
+        assertThat(criteria.hasQuery()).isFalse();
+        assertThat(criteria.threadId()).isEqualTo("thread-1");
+    }
+
+    @Test
+    void acceptsEveryFilterOnItsOwnWithoutAQuery() {
+        assertThat(criteria(SearchRequest.builder().communicationType("EMAIL")).hasQuery()).isFalse();
+        assertThat(criteria(SearchRequest.builder().sender("a@example.com")).hasQuery()).isFalse();
+        assertThat(criteria(SearchRequest.builder().recipient("b@example.com")).hasQuery()).isFalse();
+        assertThat(criteria(SearchRequest.builder().dispositionStatus("ON_HOLD")).hasQuery()).isFalse();
+        assertThat(criteria(SearchRequest.builder().holdId("hold-1")).hasQuery()).isFalse();
+        assertThat(criteria(SearchRequest.builder().onHold(true)).hasQuery()).isFalse();
+        assertThat(criteria(SearchRequest.builder().hasAttachments(true)).hasQuery()).isFalse();
+        assertThat(criteria(SearchRequest.builder().after("2026-09-01T00:00:00Z")).hasQuery()).isFalse();
+        assertThat(criteria(SearchRequest.builder().before("2026-09-30T00:00:00Z")).hasQuery()).isFalse();
+    }
+
+    @Test
+    void treatsBlankFiltersAsAbsentWhenDecidingIfQueryIsRequired() {
+        assertThatThrownBy(() -> criteria(SearchRequest.builder().threadId("   ").sender("")))
                 .isInstanceOf(InvalidSearchRequestException.class)
                 .extracting(SearchCriteriaTest::fieldOf)
                 .isEqualTo("q");

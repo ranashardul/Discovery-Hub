@@ -24,10 +24,17 @@ public class SearchQueryBuilder {
     public Query build(SearchCriteria criteria) {
         BoolQuery.Builder bool = new BoolQuery.Builder();
 
-        bool.must(must -> must.multiMatch(multiMatch -> multiMatch
-                .query(criteria.query())
-                .fields(SUBJECT_FIELD, BODY_FIELD)
-                .type(TextQueryType.BestFields)));
+        if (criteria.hasQuery()) {
+            bool.must(must -> must.multiMatch(multiMatch -> multiMatch
+                    .query(criteria.query())
+                    .fields(SUBJECT_FIELD, BODY_FIELD)
+                    .type(TextQueryType.BestFields)));
+        } else {
+            // Filter-only request: match everything and let the filters narrow
+            // it. Without this the bool query has no positive clause and
+            // returns nothing.
+            bool.must(must -> must.matchAll(matchAll -> matchAll));
+        }
 
         term(bool, "communicationType", criteria.communicationType());
         term(bool, "sender.keyword", criteria.sender());
@@ -67,7 +74,10 @@ public class SearchQueryBuilder {
      */
     public List<SortOptions> sort(SearchCriteria criteria) {
         return switch (criteria.sort()) {
-            case RELEVANCE -> List.of();
+            // Relevance is meaningless without text to score against: every
+            // document matches equally, so results come back in an arbitrary
+            // order that shifts between requests. Fall back to newest first.
+            case RELEVANCE -> criteria.hasQuery() ? List.of() : timestampSort(SortOrder.Desc);
             case NEWEST -> timestampSort(SortOrder.Desc);
             case OLDEST -> timestampSort(SortOrder.Asc);
         };

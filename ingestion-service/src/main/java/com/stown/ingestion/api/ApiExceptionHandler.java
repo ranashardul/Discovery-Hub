@@ -56,9 +56,17 @@ public class ApiExceptionHandler {
         );
     }
 
+    /**
+     * Two distinct MessageNotFoundException types exist: the read API throws
+     * the one in this package, the disposition path throws the one in
+     * {@code service}. Both are the same answer to the caller, so both map
+     * here. The api one is fully qualified because the simple name is taken by
+     * the import above.
+     */
     @ExceptionHandler({
             IngestionRequestNotFoundException.class,
-            MessageNotFoundException.class
+            MessageNotFoundException.class,
+            com.stown.ingestion.api.MessageNotFoundException.class
     })
     public ResponseEntity<ApiErrorResponse> handleNotFound(
             RuntimeException exception,
@@ -66,14 +74,6 @@ public class ApiExceptionHandler {
     ) {
         return build(HttpStatus.NOT_FOUND, exception.getMessage(), request, List.of());
     }
-
-
-    @ExceptionHandler(MessageNotFoundException.class)
-    public ResponseEntity<ApiErrorResponse> handleMessageNotFound(
-            MessageNotFoundException exception,
-            HttpServletRequest request
-    ) {
-        return build(HttpStatus.NOT_FOUND, exception.getMessage(), request, List.of());
 
     /**
      * A legal hold blocks deletion. Answering 409 rather than 403 says the

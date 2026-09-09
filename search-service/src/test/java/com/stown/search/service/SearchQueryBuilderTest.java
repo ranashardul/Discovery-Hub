@@ -157,6 +157,29 @@ class SearchQueryBuilderTest {
     }
 
     @Test
+    void matchesEverythingWhenOnlyFiltersAreSupplied() {
+        Query query = builder.build(criteria(SearchRequest.builder().threadId("thread-1")));
+
+        // Without a positive clause a bool query returns nothing, so the
+        // filter-only case needs match_all rather than an empty must.
+        assertThat(query.bool().must()).hasSize(1);
+        assertThat(query.bool().must().getFirst().isMatchAll()).isTrue();
+        assertThat(query.bool().filter()).hasSize(1);
+        assertThat(query.bool().filter().getFirst().term().field()).isEqualTo("threadId");
+    }
+
+    @Test
+    void sortsFilterOnlyResultsByTimestampInsteadOfRelevance() {
+        // Every document scores identically without text, so relevance order
+        // is arbitrary and unstable between requests.
+        List<SortOptions> sort = builder.sort(criteria(SearchRequest.builder().threadId("thread-1")));
+
+        assertThat(sort).hasSize(2);
+        assertThat(sort.getFirst().field().field()).isEqualTo(SearchQueryBuilder.TIMESTAMP_FIELD);
+        assertThat(sort.getFirst().field().order()).isEqualTo(SortOrder.Desc);
+    }
+
+    @Test
     void leavesOrderingToElasticsearchForRelevance() {
         assertThat(builder.sort(SearchCriteria.ofQuery("merger", MAX_SIZE))).isEmpty();
     }

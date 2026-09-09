@@ -1,0 +1,319 @@
+<div class="page">
+  <div class="page__head">
+    <div>
+      <h1 class="page__title">Search the archive</h1>
+      <p class="page__subtitle">
+        Full-text search across subject, body and participants. Narrow with filters, then capture
+        what matters onto a case as evidence.
+      </p>
+    </div>
+  </div>
+
+  <form class="card" [formGroup]="form" (ngSubmit)="submit()">
+    <div class="card__body stack">
+      <div class="inline">
+        <input
+          type="search"
+          formControlName="q"
+          placeholder='Terms, or "an exact phrase" — e.g. preservation notice'
+          aria-label="Search terms"
+          style="flex: 1 1 22rem"
+        />
+        <button type="submit" class="btn btn--primary" [disabled]="loading()">Search</button>
+        <button type="button" class="btn" (click)="reset()">Clear</button>
+        <button type="button" class="btn btn--ghost" (click)="filtersOpen.set(!filtersOpen())">
+          {{ filtersOpen() ? 'Hide filters' : 'Show filters' }}
+        </button>
+      </div>
+
+      @if (filtersOpen()) {
+        <div class="form-grid">
+          <label class="field">
+            <span class="field__label">Communication type</span>
+            <select formControlName="communicationType">
+              <option value="">Any</option>
+              <option value="EMAIL">Email</option>
+              <option value="CHAT">Chat</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Custodian (sender)</span>
+            <select formControlName="sender">
+              <option value="">Any sender</option>
+              @for (custodian of custodians(); track custodian.id) {
+                <option [value]="custodian.email">{{ custodian.displayName }}</option>
+              }
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Participant (recipient)</span>
+            <select formControlName="recipient">
+              <option value="">Any recipient</option>
+              @for (custodian of custodians(); track custodian.id) {
+                <option [value]="custodian.email">{{ custodian.displayName }}</option>
+              }
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Hold status</span>
+            <select formControlName="onHold">
+              <option value="">Any</option>
+              <option value="true">On hold only</option>
+              <option value="false">Not on hold</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field__label">From date</span>
+            <input type="date" formControlName="after" />
+          </label>
+
+          <label class="field">
+            <span class="field__label">To date</span>
+            <input type="date" formControlName="before" />
+          </label>
+
+          <label class="field">
+            <span class="field__label">Sort</span>
+            <select formControlName="sort">
+              @for (sort of sorts; track sort.value) {
+                <option [value]="sort.value">{{ sort.label }}</option>
+              }
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Results per page</span>
+            <select formControlName="size">
+              @for (size of pageSizes; track size) {
+                <option [value]="size">{{ size }}</option>
+              }
+            </select>
+          </label>
+
+          <label class="check" style="align-self: end">
+            <input type="checkbox" formControlName="hasAttachments" />
+            <span>Has attachments</span>
+          </label>
+        </div>
+      }
+    </div>
+  </form>
+
+  @if (error()) {
+    <div style="margin-top: 1rem">
+      <app-error-band title="Search unavailable" [message]="error()!" />
+    </div>
+  }
+
+  @if (loading()) {
+    <div class="card" style="margin-top: 1rem"><app-loading message="Querying the index…" /></div>
+  }
+
+  @let result = response();
+
+  @if (result && !loading()) {
+    <section class="card" style="margin-top: 1rem">
+      <div class="card__head">
+        <div>
+          <h2 class="card__title">
+            {{ result.total | number }} match{{ result.total === 1 ? '' : 'es' }}
+          </h2>
+          <p class="card__hint">
+            Page {{ page().current }} of {{ page().total }} · {{ result.tookMillis }} ms ·
+            sorted by {{ result.sort }}
+            @if (selected().size > 0) {
+              · {{ selected().size }} selected
+            }
+          </p>
+        </div>
+        <div class="inline">
+          @if (selected().size > 0) {
+            <button type="button" class="btn btn--sm" (click)="openEvidenceModal('SELECTED')">
+              Add selected to case
+            </button>
+          }
+          <button type="button" class="btn btn--sm" (click)="openEvidenceModal('PAGE')">
+            Add this page to case
+          </button>
+          <button type="button" class="btn btn--sm" (click)="openEvidenceModal('ALL')">
+            Add all {{ result.total | number }} to case
+          </button>
+          <button type="button" class="btn btn--sm" (click)="openSaveModal()">Save search</button>
+        </div>
+      </div>
+
+      <div class="card__body card__body--flush">
+        @if (result.results.length === 0) {
+          <app-empty
+            title="Nothing matched"
+            hint="Try fewer terms, widen the date range, or clear a filter."
+          />
+        } @else {
+          <div class="table-wrap">
+            <table class="data">
+              <thead>
+                <tr>
+                  <th style="width: 2.5rem">
+                    <input
+                      type="checkbox"
+                      [checked]="allOnPageSelected()"
+                      (change)="toggleAllOnPage($any($event.target).checked)"
+                      aria-label="Select all on page"
+                    />
+                  </th>
+                  <th>Message</th>
+                  <th class="nowrap">Participants</th>
+                  <th class="nowrap">Sent</th>
+                  <th class="nowrap">Flags</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (item of result.results; track item.messageId) {
+                  <tr>
+                    <td>
+                      <input
+                        type="checkbox"
+                        [checked]="selected().has(item.messageId)"
+                        (change)="toggleSelection(item.messageId)"
+                        [attr.aria-label]="'Select ' + item.subject"
+                      />
+                    </td>
+                    <td>
+                      <a [routerLink]="['/messages', item.messageId]" class="strong">
+                        <span [innerHTML]="item.highlights.subject | highlighted"></span>
+                      </a>
+                      <p class="small muted" style="margin: 0.25rem 0 0">
+                        <span [innerHTML]="item.snippet | highlighted"></span>
+                      </p>
+                      <p class="small muted mono" style="margin: 0.25rem 0 0">
+                        {{ item.messageId }} · thread {{ item.threadId }} · score {{ item.score }}
+                      </p>
+                    </td>
+                    <td class="small">
+                      <div>{{ item.sender }}</div>
+                      <div class="muted">
+                        → {{ item.recipients[0] }}
+                        @if (item.recipients.length > 1) {
+                          <span>+{{ item.recipients.length - 1 }}</span>
+                        }
+                      </div>
+                    </td>
+                    <td class="nowrap small">{{ item.messageTimestamp | date: 'dd MMM yyyy HH:mm' }}</td>
+                    <td>
+                      <div class="inline inline--tight">
+                        <app-status-chip [status]="item.communicationType" />
+                        @if (item.onHold) {
+                          <app-status-chip status="ON HOLD" />
+                        }
+                        @if (item.attachmentCount > 0) {
+                          <span class="small muted nowrap">{{ item.attachmentCount }} file(s)</span>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+
+          <div class="spread" style="padding: 0.75rem 1.1rem; border-top: 1px solid var(--color-border)">
+            <span class="small muted">
+              Showing {{ result.from + 1 }}–{{ result.from + result.results.length }} of
+              {{ result.total | number }}
+            </span>
+            <div class="inline">
+              <button type="button" class="btn btn--sm" [disabled]="result.from === 0" (click)="goToPage(-1)">
+                Previous
+              </button>
+              <button type="button" class="btn btn--sm" [disabled]="!hasNext()" (click)="goToPage(1)">
+                Next
+              </button>
+            </div>
+          </div>
+        }
+      </div>
+    </section>
+  }
+
+  @if (!result && !loading() && !error()) {
+    <div class="card" style="margin-top: 1rem">
+      <app-empty
+        title="Start with a search term"
+        hint='The corpus covers emails and chats across the firm. Try "preservation notice", "restricted list" or a custodian name.'
+      />
+    </div>
+  }
+</div>
+
+@if (evidenceModalOpen()) {
+  <app-modal
+    title="Add to case as evidence"
+    subtitle="Evidence is attributed to you and recorded in the audit trail."
+    (dismissed)="evidenceModalOpen.set(false)"
+  >
+    <form [formGroup]="evidenceForm" class="stack">
+      <label class="field">
+        <span class="field__label">Case</span>
+        <select formControlName="caseId">
+          @for (item of openCases(); track item.id) {
+            <option [value]="item.id">{{ item.caseNumber }} — {{ item.name }}</option>
+          }
+        </select>
+        <span class="field__hint">Closed cases are read-only and cannot receive evidence.</span>
+      </label>
+
+      <label class="field">
+        <span class="field__label">Scope</span>
+        <select formControlName="scope">
+          <option value="SELECTED">Selected messages ({{ selected().size }})</option>
+          <option value="PAGE">This page of results</option>
+          <option value="ALL">All matching results ({{ response()?.total || 0 }})</option>
+        </select>
+        <span class="field__hint">
+          Messages already on the case are skipped rather than duplicated.
+        </span>
+      </label>
+    </form>
+
+    <div modalActions>
+      <button type="button" class="btn" (click)="evidenceModalOpen.set(false)">Cancel</button>
+      <button type="button" class="btn btn--primary" [disabled]="busy()" (click)="confirmAddEvidence()">
+        {{ busy() ? 'Adding…' : 'Add evidence' }}
+      </button>
+    </div>
+  </app-modal>
+}
+
+@if (saveModalOpen()) {
+  <app-modal
+    title="Save this search"
+    subtitle="Saved searches live on a case so they can be re-run later."
+    (dismissed)="saveModalOpen.set(false)"
+  >
+    <form [formGroup]="saveForm" class="stack">
+      <label class="field">
+        <span class="field__label">Case</span>
+        <select formControlName="caseId">
+          @for (item of openCases(); track item.id) {
+            <option [value]="item.id">{{ item.caseNumber }} — {{ item.name }}</option>
+          }
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">Name</span>
+        <input type="text" formControlName="name" placeholder="e.g. Off-channel terms, Q3" />
+      </label>
+    </form>
+
+    <div modalActions>
+      <button type="button" class="btn" (click)="saveModalOpen.set(false)">Cancel</button>
+      <button type="button" class="btn btn--primary" [disabled]="busy()" (click)="confirmSaveSearch()">
+        Save search
+      </button>
+    </div>
+  </app-modal>
+}

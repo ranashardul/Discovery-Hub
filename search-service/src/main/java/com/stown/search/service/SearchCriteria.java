@@ -26,12 +26,21 @@ public record SearchCriteria(
 
     /**
      * Normalises and validates raw request parameters. Blank optional filters
-     * are dropped, {@code size} is capped and {@code q} is mandatory.
+     * are dropped and {@code size} is capped.
+     *
+     * <p>{@code q} may be omitted when at least one filter is supplied, which
+     * is what "every message in this thread" or "everything under this hold"
+     * needs - questions with no text to match on. A request with neither text
+     * nor filters is still rejected, because that is a request to page the
+     * entire corpus and is far more likely to be a mistake than an intent.
      */
     public static SearchCriteria of(SearchRequest request, int maxSize) {
         String query = trimToNull(request.q());
-        if (query == null) {
-            throw new InvalidSearchRequestException("q", "Query parameter 'q' is required and must not be blank");
+        if (query == null && !hasAnyFilter(request)) {
+            throw new InvalidSearchRequestException(
+                    "q",
+                    "Query parameter 'q' is required unless at least one filter is supplied"
+            );
         }
 
         int resolvedFrom = request.from() == null ? 0 : request.from();
@@ -80,6 +89,24 @@ public record SearchCriteria(
 
     public boolean hasDateRange() {
         return after != null || before != null;
+    }
+
+    /** True when the caller supplied text to match on. */
+    public boolean hasQuery() {
+        return query != null;
+    }
+
+    private static boolean hasAnyFilter(SearchRequest request) {
+        return trimToNull(request.communicationType()) != null
+                || trimToNull(request.sender()) != null
+                || trimToNull(request.recipient()) != null
+                || trimToNull(request.threadId()) != null
+                || trimToNull(request.dispositionStatus()) != null
+                || trimToNull(request.holdId()) != null
+                || request.onHold() != null
+                || request.hasAttachments() != null
+                || trimToNull(request.after()) != null
+                || trimToNull(request.before()) != null;
     }
 
     private static Instant parseInstant(String field, String value) {

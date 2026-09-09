@@ -1,0 +1,202 @@
+<div class="page">
+  <div class="page__head">
+    <div>
+      <h1 class="page__title">Evidence exports</h1>
+      <p class="page__subtitle">
+        Exports run as background jobs. A completed package contains the messages, every
+        attachment, and a manifest with a checksum per item plus one for the package itself.
+      </p>
+    </div>
+    <div class="page__actions">
+      <a class="btn btn--primary" routerLink="/cases">Request from a case</a>
+    </div>
+  </div>
+
+  <div class="grid grid--metrics" style="margin-bottom: 1rem">
+    <div class="metric">
+      <p class="metric__label">Completed</p>
+      <p class="metric__value">{{ counts().completed }}</p>
+    </div>
+    <div class="metric">
+      <p class="metric__label">In flight</p>
+      <p class="metric__value">{{ counts().inFlight }}</p>
+      <p class="metric__hint">Queued or running</p>
+    </div>
+    <div class="metric">
+      <p class="metric__label">Failed</p>
+      <p class="metric__value">{{ counts().failed }}</p>
+      <p class="metric__hint">Retryable without duplicating a package</p>
+    </div>
+  </div>
+
+  @if (verification(); as report) {
+    <div
+      class="banner"
+      [class.banner--success]="report.passed"
+      [class.banner--danger]="!report.passed"
+      style="margin-bottom: 1rem"
+    >
+      <strong>{{ report.passed ? 'Verification passed' : 'Verification failed' }}</strong> — job
+      <span class="mono">{{ report.jobId }}</span>, {{ report.itemsChecked }} item(s) checked,
+      package checksum {{ report.packageChecksumMatches ? 'matches' : 'does not match' }}.
+      @for (mismatch of report.mismatches; track mismatch.itemId) {
+        <div class="small mono" style="margin-top: 0.3rem">
+          {{ mismatch.itemId }}: expected {{ mismatch.expected.slice(0, 16) }}… got
+          {{ mismatch.actual.slice(0, 16) }}…
+        </div>
+      }
+    </div>
+  }
+
+  <section class="card">
+    <div class="card__head">
+      <h2 class="card__title">Jobs</h2>
+      <button type="button" class="btn btn--sm" (click)="load()">Refresh</button>
+    </div>
+    <div class="card__body card__body--flush">
+      @if (error()) {
+        <div style="padding: 1rem">
+          <app-error-band title="Export service unavailable" [message]="error()!">
+            <button type="button" class="btn btn--sm" (click)="load()">Retry</button>
+          </app-error-band>
+        </div>
+      } @else if (loading()) {
+        <app-loading message="Loading export jobs…" />
+      } @else if (jobs().length === 0) {
+        <app-empty title="No export jobs" hint="Open a case with evidence and request an export." />
+      } @else {
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Job</th>
+                <th>Case</th>
+                <th>Status</th>
+                <th class="num">Items</th>
+                <th class="num">Size</th>
+                <th>Package</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (job of jobs(); track job.id) {
+                <tr>
+                  <td>
+                    <span class="strong mono">{{ job.id }}</span>
+                    <div class="small muted">{{ job.scopeType | label }}</div>
+                    <div class="small muted">
+                      requested {{ job.requestedAt | ago }}
+                      @if (job.attempt > 1) {
+                        · attempt {{ job.attempt }}
+                      }
+                    </div>
+                  </td>
+                  <td class="small">
+                    <a [routerLink]="['/cases', job.caseId]">{{ job.caseName }}</a>
+                  </td>
+                  <td>
+                    <app-status-chip [status]="job.status" />
+                    @if (job.status === 'RUNNING' || job.status === 'QUEUED') {
+                      <div class="progress" style="margin-top: 0.4rem; width: 7rem">
+                        <div class="progress__bar" [style.width.%]="job.progress"></div>
+                      </div>
+                      <div class="small muted">{{ job.progress }}%</div>
+                    }
+                    @if (job.status === 'FAILED' && job.failureReason) {
+                      <div class="small" style="color: var(--color-danger-fg); max-width: 18rem">
+                        {{ job.failureReason }}
+                      </div>
+                    }
+                  </td>
+                  <td class="num">{{ job.itemCount | number }}</td>
+                  <td class="num">{{ job.packageSizeBytes | bytes }}</td>
+                  <td class="small">
+                    @if (job.packageChecksum) {
+                      <div class="mono">{{ job.packageChecksum.slice(0, 16) }}…</div>
+                      <div class="muted">
+                        @if (expired(job)) {
+                          link expired
+                        } @else {
+                          link expires {{ job.downloadExpiresAt | date: 'HH:mm:ss' }}
+                        }
+                        · {{ job.downloadCount }} download(s)
+                      </div>
+                    } @else {
+                      <span class="muted">—</span>
+                    }
+                  </td>
+                  <td class="row-actions">
+                    @if (job.status === 'COMPLETED') {
+                      <button type="button" class="btn btn--sm" (click)="download(job)">
+                        {{ expired(job) ? 'Re-issue link' : 'Download' }}
+                      </button>
+                      <button type="button" class="btn btn--sm" (click)="openManifest(job)">Manifest</button>
+                      <button type="button" class="btn btn--sm" [disabled]="busy()" (click)="verify(job)">
+                        Verify
+                      </button>
+                      @if (canTamper) {
+                        <button type="button" class="btn btn--sm" (click)="tamper(job)">Tamper</button>
+                      }
+                    }
+                    @if (job.status === 'FAILED') {
+                      <button type="button" class="btn btn--sm btn--primary" (click)="retry(job)">
+                        Retry
+                      </button>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+  </section>
+</div>
+
+@if (manifest(); as m) {
+  <app-modal
+    title="Export manifest"
+    [subtitle]="'Job ' + m.jobId + ' · ' + m.algorithm + ' · generated ' + (m.generatedAt | date: 'dd MMM yyyy HH:mm')"
+    [wide]="true"
+    (dismissed)="manifest.set(null)"
+  >
+    <div class="stack">
+      <dl class="kv">
+        <dt>Items</dt>
+        <dd>{{ m.itemCount | number }}</dd>
+        <dt>Total size</dt>
+        <dd>{{ m.totalSizeBytes | bytes }}</dd>
+        <dt>Package checksum</dt>
+        <dd class="mono">{{ m.packageChecksum }}</dd>
+      </dl>
+
+      <div class="table-wrap" style="max-height: 24rem; overflow-y: auto">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Path</th>
+              <th>Type</th>
+              <th class="num">Size</th>
+              <th>SHA-256</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (entry of m.entries; track entry.itemId) {
+              <tr>
+                <td class="mono small">{{ entry.path }}</td>
+                <td class="small">{{ entry.itemType | label }}</td>
+                <td class="num small">{{ entry.sizeBytes | bytes }}</td>
+                <td class="mono small">{{ entry.sha256.slice(0, 24) }}…</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div modalActions>
+      <button type="button" class="btn" (click)="manifest.set(null)">Close</button>
+    </div>
+  </app-modal>
+}

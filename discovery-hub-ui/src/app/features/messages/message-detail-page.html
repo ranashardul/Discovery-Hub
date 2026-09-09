@@ -1,0 +1,175 @@
+<div class="page">
+  @if (loading()) {
+    <div class="card"><app-loading message="Loading message…" /></div>
+  } @else if (error()) {
+    <app-error-band title="Message unavailable" [message]="error()!">
+      <button type="button" class="btn btn--sm" (click)="load()">Retry</button>
+    </app-error-band>
+  } @else if (message(); as item) {
+    <div class="page__head">
+      <div>
+        <p class="small muted" style="margin: 0 0 0.2rem">
+          <a routerLink="/search">Search</a> / <span class="mono">{{ item.id }}</span>
+        </p>
+        <h1 class="page__title">{{ item.subject }}</h1>
+        <div class="inline" style="margin-top: 0.5rem">
+          <app-status-chip [status]="item.communicationType" />
+          @if (item.holdCount > 0) {
+            <app-status-chip status="ON HOLD" />
+          }
+          <app-status-chip [status]="item.dispositionStatus" />
+          <span class="small muted">{{ item.messageTimestamp | date: 'dd MMM yyyy HH:mm:ss' }}</span>
+        </div>
+      </div>
+
+      <div class="page__actions">
+        <select
+          [formControl]="evidenceForm.controls.caseId"
+          aria-label="Case"
+          style="max-width: 18rem"
+        >
+          @for (openCase of openCases(); track openCase.id) {
+            <option [value]="openCase.id">{{ openCase.caseNumber }} — {{ openCase.name }}</option>
+          }
+        </select>
+        <button type="button" class="btn btn--primary" [disabled]="busy()" (click)="addToCase()">
+          Add as evidence
+        </button>
+        <button type="button" class="btn btn--danger" (click)="testDeletion()">Test delete</button>
+      </div>
+    </div>
+
+    @if (deletionResult(); as result) {
+      <div
+        class="banner"
+        [class.banner--danger]="!result.deleted"
+        [class.banner--success]="result.deleted"
+        style="margin-bottom: 1rem"
+      >
+        <strong>{{ result.deleted ? 'Deleted' : 'Deletion blocked' }}</strong> — {{ result.reason }}
+      </div>
+    }
+
+    @if (item.holdCount > 0) {
+      <div class="banner banner--warn" style="margin-bottom: 1rem">
+        This message is covered by <strong>{{ item.holdCount }}</strong> active hold(s). It cannot be
+        deleted or modified by any part of the platform, including the retention job.
+      </div>
+    }
+
+    <div class="grid grid--halves">
+      <section class="card">
+        <div class="card__head">
+          <h2 class="card__title">Message</h2>
+        </div>
+        <div class="card__body stack">
+          <dl class="kv">
+            <dt>From</dt>
+            <dd>{{ item.sender }}</dd>
+            <dt>To</dt>
+            <dd>{{ item.recipients.join(', ') }}</dd>
+            <dt>Sent</dt>
+            <dd>{{ item.messageTimestamp | date: 'dd MMM yyyy HH:mm:ss' }}</dd>
+            <dt>Ingested</dt>
+            <dd>{{ item.createdAt | date: 'dd MMM yyyy HH:mm:ss' }}</dd>
+            <dt>Message ID</dt>
+            <dd class="mono">{{ item.id }}</dd>
+            <dt>Source ID</dt>
+            <dd class="mono">{{ item.externalMessageId }}</dd>
+            <dt>Thread</dt>
+            <dd class="mono">{{ item.threadId }}</dd>
+            <dt>Retention</dt>
+            <dd>{{ item.dispositionStatus | label }}</dd>
+          </dl>
+
+          <div>
+            <p class="field__label">Body</p>
+            <p style="margin: 0; white-space: pre-wrap">{{ item.body }}</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card__head">
+          <h2 class="card__title">Attachments</h2>
+          <span class="small muted">{{ item.attachments.length }}</span>
+        </div>
+        <div class="card__body card__body--flush">
+          @if (item.attachments.length === 0) {
+            <app-empty title="No attachments" hint="This message carries no files." />
+          } @else {
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>File</th>
+                    <th class="num">Size</th>
+                    <th>SHA-256</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (attachment of item.attachments; track attachment.attachmentId) {
+                    <tr>
+                      <td>
+                        <span class="strong">{{ attachment.filename }}</span>
+                        <div class="small muted">{{ attachment.contentType }}</div>
+                      </td>
+                      <td class="num small">{{ attachment.sizeBytes | bytes }}</td>
+                      <td class="mono small">{{ attachment.sha256.slice(0, 20) }}…</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top: 1rem">
+      <div class="card__head">
+        <div>
+          <h2 class="card__title">Thread</h2>
+          <p class="card__hint">All messages sharing this conversation, oldest first.</p>
+        </div>
+        <span class="small muted">{{ thread().length }} message(s)</span>
+      </div>
+      <div class="card__body card__body--flush">
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th class="nowrap">Sent</th>
+                <th>Subject</th>
+                <th>From</th>
+                <th>Flags</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (entry of thread(); track entry.id) {
+                <tr [style.background]="entry.id === item.id ? 'var(--color-accent-soft)' : ''">
+                  <td class="nowrap small">{{ entry.messageTimestamp | date: 'dd MMM HH:mm' }}</td>
+                  <td>
+                    <a [routerLink]="['/messages', entry.id]">{{ entry.subject }}</a>
+                    <div class="small muted mono">{{ entry.id }}</div>
+                  </td>
+                  <td class="small">{{ entry.sender }}</td>
+                  <td>
+                    <div class="inline inline--tight">
+                      @if (entry.holdCount > 0) {
+                        <app-status-chip status="ON HOLD" />
+                      }
+                      @if (entry.attachments.length > 0) {
+                        <span class="small muted nowrap">{{ entry.attachments.length }} file(s)</span>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  }
+</div>
