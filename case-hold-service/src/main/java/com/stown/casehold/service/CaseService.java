@@ -10,6 +10,7 @@ import com.stown.casehold.domain.CaseCommunicationEntity;
 import com.stown.casehold.domain.CaseEntity;
 import com.stown.casehold.domain.CaseStatus;
 import com.stown.casehold.domain.HoldStatus;
+import com.stown.casehold.domain.MessageDocument;
 import com.stown.casehold.messaging.CaseCreatedEvent;
 import com.stown.casehold.messaging.CaseUpdatedEvent;
 import com.stown.casehold.messaging.CommunicationAddedToCaseEvent;
@@ -39,6 +40,7 @@ public class CaseService {
     private final CaseRepository caseRepository;
     private final CaseCommunicationRepository caseCommunicationRepository;
     private final HoldRepository holdRepository;
+    private final MessageLookupService messageLookupService;
     private final EventOutboxWriter outbox;
 
     @Transactional
@@ -210,22 +212,11 @@ public class CaseService {
 
         List<CaseCommunicationEntity> all =
                 caseCommunicationRepository.findByCaseIdOrderByAddedAtAsc(caseId);
-        Map<String, CaseCommunicationEntity> addedById = newlyAdded.stream()
-                .collect(Collectors.toMap(
-                        CaseCommunicationEntity::getCommunicationId,
-                        c -> c,
-                        (a, b) -> a
-                ));
+        Set<String> addedIds = newlyAdded.stream()
+                .map(CaseCommunicationEntity::getCommunicationId)
+                .collect(Collectors.toSet());
 
-        return new CaseCommunicationsResponse(
-                caseId,
-                all.size(),
-                all.stream().map(CaseService::toItem).toList(),
-                all.stream()
-                        .filter(c -> addedById.containsKey(c.getCommunicationId()))
-                        .map(CaseService::toItem)
-                        .toList()
-        );
+        return buildResponse(caseId, all, addedIds);
     }
 
     @Transactional(readOnly = true)
@@ -234,11 +225,40 @@ public class CaseService {
         List<CaseCommunicationEntity> all =
                 caseCommunicationRepository.findByCaseIdOrderByAddedAtAsc(caseId);
 
+        return buildResponse(caseId, all, Set.of());
+    }
+
+    /**
+     * Resolves every reference against the message store in one batch, then
+     * assembles the response. Unresolvable references are still returned, with
+     * {@code resolved=false}, so a bad identifier or an unreachable store never
+     * hides the case record itself.
+     */
+    private CaseCommunicationsResponse buildResponse(
+            UUID caseId,
+            List<CaseCommunicationEntity> all,
+            Set<String> newlyAddedIds
+    ) {
+        Map<String, MessageDocument> messages = messageLookupService.findByIds(
+                all.stream().map(CaseCommunicationEntity::getCommunicationId).toList()
+        );
+
+        List<CaseCommunicationsResponse.CaseCommunicationItem> items = all.stream()
+                .map(entity -> toItem(entity, messages.get(entity.getCommunicationId())))
+                .toList();
+
+        long unresolved = items.stream()
+                .filter(item -> !item.message().resolved())
+                .count();
+
         return new CaseCommunicationsResponse(
                 caseId,
-                all.size(),
-                all.stream().map(CaseService::toItem).toList(),
-                List.of()
+                items.size(),
+                unresolved,
+                items,
+                items.stream()
+                        .filter(item -> newlyAddedIds.contains(item.communicationId()))
+                        .toList()
         );
     }
 
@@ -266,12 +286,14 @@ public class CaseService {
     }
 
     private static CaseCommunicationsResponse.CaseCommunicationItem toItem(
-            CaseCommunicationEntity entity
+            CaseCommunicationEntity entity,
+            MessageDocument message
     ) {
         return new CaseCommunicationsResponse.CaseCommunicationItem(
                 entity.getCommunicationId(),
                 entity.getCommunicationType(),
-                entity.getAddedAt()
+                entity.getAddedAt(),
+                CommunicationDetails.from(message)
         );
     }
 
