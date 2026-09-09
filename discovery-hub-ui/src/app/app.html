@@ -1,0 +1,60 @@
+<div class="shell" [class.shell--nav-open]="navOpen()">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand__mark">DH</span>
+      <span class="brand__text">
+        <strong>DiscoveryHub</strong>
+        <small>E-discovery &amp; legal hold</small>
+      </span>
+    </div>
+
+    <nav class="nav" aria-label="Primary">
+      @for (item of nav; track item.path) {
+        <a
+          class="nav__item"
+          [routerLink]="item.path"
+          routerLinkActive="nav__item--active"
+          [title]="item.hint"
+          (click)="closeNav()"
+        >
+          <svg class="nav__icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path [attr.d]="icons[item.icon]" />
+          </svg>
+          <span>{{ item.label }}</span>
+        </a>
+      }
+    </nav>
+
+    <div class="sidebar__foot">
+      <p class="sidebar__actor">
+        <span class="muted small">Signed in as</span><br />
+        {{ actor }}
+      </p>
+      @if (usingMockBackend) {
+        <p class="sidebar__mode">Prototype data — in-memory backend</p>
+      }
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button type="button" class="topbar__burger" (click)="toggleNav()" aria-label="Toggle navigation">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+      </button>
+
+      <span class="topbar__persona">Investigator / Compliance Officer workspace</span>
+
+      @if (degraded().length > 0) {
+        <span class="topbar__degraded" role="status">
+          {{ degraded().length }} service(s) unavailable — screens degrade, nothing cascades
+        </span>
+      }
+    </header>
+
+    <main class="content">
+      <router-outlet />
+    </main>
+  </div>
+</div>
+
+<app-toast-host />

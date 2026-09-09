@@ -1,0 +1,139 @@
+<div class="page">
+  <div class="page__head">
+    <div>
+      <h1 class="page__title">Cases</h1>
+      <p class="page__subtitle">
+        A case scopes an investigation: the custodians in scope, the evidence collected, the holds
+        preserving it and the exports produced from it.
+      </p>
+    </div>
+    <div class="page__actions">
+      <button type="button" class="btn btn--primary" (click)="createOpen.set(true)">New case</button>
+    </div>
+  </div>
+
+  <section class="card">
+    <div class="card__head">
+      <div class="inline">
+        <input
+          type="search"
+          placeholder="Search name, number or description"
+          [value]="search()"
+          (input)="applySearch($any($event.target).value)"
+          aria-label="Search cases"
+          style="min-width: 18rem"
+        />
+        <select
+          [value]="statusFilter()"
+          (change)="applyStatus($any($event.target).value)"
+          aria-label="Filter by status"
+        >
+          <option value="">All statuses</option>
+          @for (status of statuses; track status) {
+            <option [value]="status">{{ status | label }}</option>
+          }
+        </select>
+      </div>
+      <span class="small muted">{{ cases().length }} case(s)</span>
+    </div>
+
+    <div class="card__body card__body--flush">
+      @if (error()) {
+        <div style="padding: 1rem">
+          <app-error-band title="Case service unavailable" [message]="error()!">
+            <button type="button" class="btn btn--sm" (click)="load()">Retry</button>
+          </app-error-band>
+        </div>
+      } @else if (loading()) {
+        <app-loading message="Loading cases…" />
+      } @else if (cases().length === 0) {
+        <app-empty title="No cases yet" hint="Create a case to start collecting evidence." />
+      } @else {
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Case</th>
+                <th>Matter type</th>
+                <th>Status</th>
+                <th class="num">Custodians</th>
+                <th class="num">Evidence</th>
+                <th class="num">Held</th>
+                <th>Owner</th>
+                <th class="nowrap">Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (item of cases(); track item.id) {
+                <tr>
+                  <td>
+                    <a [routerLink]="['/cases', item.id]" class="strong">{{ item.name }}</a>
+                    <div class="small muted mono">{{ item.caseNumber }}</div>
+                  </td>
+                  <td class="small">{{ item.matterType | label }}</td>
+                  <td><app-status-chip [status]="item.status" /></td>
+                  <td class="num">{{ item.custodianCount }}</td>
+                  <td class="num">{{ item.evidenceCount }}</td>
+                  <td class="num">
+                    {{ item.heldMessageCount }}
+                    @if (item.activeHoldCount > 0) {
+                      <div class="small muted nowrap">{{ item.activeHoldCount }} hold(s)</div>
+                    }
+                  </td>
+                  <td class="small muted">{{ item.owner }}</td>
+                  <td class="nowrap small">{{ item.updatedAt | date: 'dd MMM yyyy' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+  </section>
+</div>
+
+@if (createOpen()) {
+  <app-modal
+    title="Create a case"
+    subtitle="New cases start in Draft. Activate once custodians are attached."
+    (dismissed)="createOpen.set(false)"
+  >
+    <form [formGroup]="createForm" class="stack">
+      <label class="field">
+        <span class="field__label">Name</span>
+        <input type="text" formControlName="name" placeholder="e.g. Off-channel messaging review" />
+        @if (createForm.controls.name.touched && createForm.controls.name.invalid) {
+          <span class="field__error">A case name is required.</span>
+        }
+      </label>
+
+      <label class="field">
+        <span class="field__label">Description</span>
+        <textarea formControlName="description" placeholder="What is being investigated, and why"></textarea>
+      </label>
+
+      <div class="form-grid">
+        <label class="field">
+          <span class="field__label">Matter type</span>
+          <select formControlName="matterType">
+            @for (type of matterTypes; track type) {
+              <option [value]="type">{{ type | label }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="field__label">Owner</span>
+          <input type="text" formControlName="owner" />
+        </label>
+      </div>
+    </form>
+
+    <div modalActions>
+      <button type="button" class="btn" (click)="createOpen.set(false)">Cancel</button>
+      <button type="button" class="btn btn--primary" [disabled]="busy()" (click)="create()">
+        {{ busy() ? 'Creating…' : 'Create case' }}
+      </button>
+    </div>
+  </app-modal>
+}

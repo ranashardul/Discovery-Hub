@@ -1,0 +1,201 @@
+<div class="page">
+  <div class="page__head">
+    <div>
+      <h1 class="page__title">Platform overview</h1>
+      <p class="page__subtitle">
+        Communications are ingested asynchronously, archived durably and searchable within seconds.
+        Everything below reflects the current state of the archive, the open matters and the
+        chain of custody.
+      </p>
+    </div>
+    <div class="page__actions">
+      <a class="btn" routerLink="/search">Search the archive</a>
+      <a class="btn btn--primary" routerLink="/cases">Open cases</a>
+    </div>
+  </div>
+
+  @let c = counts();
+
+  @if (!c) {
+    <div class="card"><app-loading message="Reading platform counts…" /></div>
+  } @else {
+    <div class="grid grid--metrics">
+      <div class="metric">
+        <p class="metric__label">Total messages</p>
+        <p class="metric__value">{{ c.totalMessages | number }}</p>
+        <p class="metric__hint">
+          {{ c.emailCount | number }} email · {{ c.chatCount | number }} chat
+        </p>
+      </div>
+      <div class="metric">
+        <p class="metric__label">Active cases</p>
+        <p class="metric__value">{{ c.activeCases | number }}</p>
+        <p class="metric__hint">{{ c.totalCases }} total, including closed</p>
+      </div>
+      <div class="metric">
+        <p class="metric__label">Active holds</p>
+        <p class="metric__value">{{ c.activeHolds | number }}</p>
+        <p class="metric__hint">{{ c.heldMessages | number }} messages preserved</p>
+      </div>
+      <div class="metric">
+        <p class="metric__label">Exports completed</p>
+        <p class="metric__value">{{ c.exportsCompleted | number }}</p>
+        <p class="metric__hint">
+          @if (c.exportsInFlight > 0) {
+            {{ c.exportsInFlight }} job(s) running now
+          } @else {
+            No jobs in flight
+          }
+        </p>
+      </div>
+    </div>
+
+    <div class="grid grid--halves" style="margin-top: 1rem">
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <h2 class="card__title">Archive composition</h2>
+            <p class="card__hint">Corpus indexed and available to search</p>
+          </div>
+        </div>
+        <div class="card__body stack">
+          <dl class="kv">
+            <dt>Indexed &amp; searchable</dt>
+            <dd>{{ c.indexedMessages | number }}</dd>
+            <dt>Custodians</dt>
+            <dd>{{ c.custodians }}</dd>
+            <dt>With attachments</dt>
+            <dd>
+              {{ c.withAttachments | number }}
+              <span class="muted small">({{ percentage(c.withAttachments, c.totalMessages) }}% of corpus)</span>
+            </dd>
+            <dt>Disposed by retention</dt>
+            <dd>{{ c.disposedMessages | number }}</dd>
+            <dt>Audit entries</dt>
+            <dd>{{ c.auditEntries | number }}</dd>
+          </dl>
+
+          <div>
+            <div class="spread small muted" style="margin-bottom: 0.3rem">
+              <span>Email</span>
+              <span>{{ percentage(c.emailCount, c.totalMessages) }}%</span>
+            </div>
+            <div class="progress">
+              <div class="progress__bar" [style.width.%]="percentage(c.emailCount, c.totalMessages)"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <h2 class="card__title">Service health</h2>
+            <p class="card__hint">
+              Each service owns its own data. If one is down the others keep serving.
+            </p>
+          </div>
+        </div>
+        <div class="card__body card__body--flush">
+          <div class="table-wrap">
+            <table class="data">
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>Port</th>
+                  <th>Status</th>
+                  @if (canSimulateOutage) {
+                    <th></th>
+                  }
+                </tr>
+              </thead>
+              <tbody>
+                @for (service of services(); track service.id) {
+                  <tr>
+                    <td>
+                      <span class="strong">{{ service.name }}</span><br />
+                      <span class="muted small">{{ service.detail }}</span>
+                    </td>
+                    <td class="mono nowrap">:{{ service.port }}</td>
+                    <td><app-status-chip [status]="service.health" /></td>
+                    @if (canSimulateOutage) {
+                      <td class="row-actions">
+                        <button type="button" class="btn btn--sm" (click)="toggleService(service.id)">
+                          {{ service.health === 'DOWN' ? 'Recover' : 'Simulate outage' }}
+                        </button>
+                      </td>
+                    }
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top: 1rem">
+      <div class="card__head">
+        <div>
+          <h2 class="card__title">Recent activity</h2>
+          <p class="card__hint">Append-only audit log, newest first</p>
+        </div>
+        <a class="btn btn--sm" routerLink="/audit">View full audit trail</a>
+      </div>
+      <div class="card__body card__body--flush">
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Action</th>
+                <th>Detail</th>
+                <th>Actor</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (entry of recent(); track entry.id) {
+                <tr>
+                  <td class="nowrap muted">{{ entry.timestamp | ago }}</td>
+                  <td><app-status-chip [status]="entry.action" /></td>
+                  <td>{{ entry.summary }}</td>
+                  <td class="muted small">{{ entry.actor }}</td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="4" class="muted">No activity recorded yet.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top: 1rem">
+      <div class="card__head">
+        <h2 class="card__title">Demo path</h2>
+      </div>
+      <div class="card__body">
+        <ol class="stack--sm small" style="margin: 0; padding-left: 1.2rem; display: grid; gap: 0.3rem">
+          <li>
+            <a routerLink="/search">Search</a> the archive, then add a result set to a case as evidence.
+          </li>
+          <li>
+            On the <a routerLink="/cases">case</a>, attach custodians and move it Draft → Active.
+          </li>
+          <li>
+            Place a <a routerLink="/holds">legal hold</a> and watch it propagate asynchronously.
+          </li>
+          <li>Try to delete a held message — the platform refuses and records the refusal.</li>
+          <li>
+            Request an <a routerLink="/exports">export</a>, then verify the manifest checksums.
+          </li>
+          <li>
+            Read the whole story back in the <a routerLink="/audit">audit trail</a>.
+          </li>
+        </ol>
+      </div>
+    </section>
+  }
+</div>

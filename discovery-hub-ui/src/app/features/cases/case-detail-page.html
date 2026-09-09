@@ -1,0 +1,616 @@
+<div class="page">
+  @if (loading()) {
+    <div class="card"><app-loading message="Loading case…" /></div>
+  } @else if (error()) {
+    <app-error-band title="Case unavailable" [message]="error()!">
+      <button type="button" class="btn btn--sm" (click)="loadAll()">Retry</button>
+    </app-error-band>
+  } @else if (legalCase(); as item) {
+    <div class="page__head">
+      <div>
+        <p class="small muted" style="margin: 0 0 0.2rem">
+          <a routerLink="/cases">Cases</a> / <span class="mono">{{ item.caseNumber }}</span>
+        </p>
+        <h1 class="page__title">{{ item.name }}</h1>
+        <p class="page__subtitle">{{ item.description }}</p>
+        <div class="inline" style="margin-top: 0.6rem">
+          <app-status-chip [status]="item.status" />
+          <app-status-chip [status]="item.matterType" />
+          <span class="small muted">Owner {{ item.owner }}</span>
+          <span class="small muted">Created {{ item.createdAt | date: 'dd MMM yyyy' }}</span>
+        </div>
+      </div>
+
+      <div class="page__actions">
+        @for (next of allowedTransitions(); track next) {
+          <button
+            type="button"
+            class="btn"
+            [class.btn--primary]="next === 'ACTIVE'"
+            [class.btn--danger]="next === 'CLOSED'"
+            [disabled]="busy()"
+            (click)="changeStatus(next)"
+          >
+            Move to {{ next | label }}
+          </button>
+        }
+        <button
+          type="button"
+          class="btn"
+          [disabled]="readOnly() || evidence().length === 0 || busy()"
+          (click)="requestExport()"
+        >
+          Export evidence
+        </button>
+      </div>
+    </div>
+
+    @if (readOnly()) {
+      <div class="banner banner--warn" style="margin-bottom: 1rem">
+        This case is <strong>closed and read-only</strong>. Evidence, custodians, holds and exports
+        can no longer be changed; its holds were released on closure unless another hold overlaps.
+      </div>
+    }
+
+    @if (item.status === 'DRAFT') {
+      <div class="banner banner--info" style="margin-bottom: 1rem">
+        Draft case. Attach custodians, then move it to <strong>Active</strong> to place holds and
+        export evidence.
+      </div>
+    }
+
+    <div class="grid grid--metrics" style="margin-bottom: 1rem">
+      <div class="metric">
+        <p class="metric__label">Evidence items</p>
+        <p class="metric__value">{{ item.evidenceCount | number }}</p>
+      </div>
+      <div class="metric">
+        <p class="metric__label">Custodians</p>
+        <p class="metric__value">{{ item.custodianCount }}</p>
+      </div>
+      <div class="metric">
+        <p class="metric__label">Held messages</p>
+        <p class="metric__value">{{ heldMessages() | number }}</p>
+        <p class="metric__hint">{{ activeHolds().length }} active hold(s)</p>
+      </div>
+      <div class="metric">
+        <p class="metric__label">Exports</p>
+        <p class="metric__value">{{ exports().length }}</p>
+      </div>
+    </div>
+
+    <section class="card">
+      <div class="tabs">
+        <button
+          type="button"
+          class="tab"
+          [class.tab--active]="tab() === 'evidence'"
+          (click)="tab.set('evidence')"
+        >
+          Evidence<span class="tab__count">{{ evidence().length }}</span>
+        </button>
+        <button
+          type="button"
+          class="tab"
+          [class.tab--active]="tab() === 'custodians'"
+          (click)="tab.set('custodians')"
+        >
+          Custodians<span class="tab__count">{{ custodians().length }}</span>
+        </button>
+        <button type="button" class="tab" [class.tab--active]="tab() === 'holds'" (click)="tab.set('holds')">
+          Holds<span class="tab__count">{{ holds().length }}</span>
+        </button>
+        <button
+          type="button"
+          class="tab"
+          [class.tab--active]="tab() === 'searches'"
+          (click)="tab.set('searches')"
+        >
+          Saved searches<span class="tab__count">{{ savedSearches().length }}</span>
+        </button>
+        <button
+          type="button"
+          class="tab"
+          [class.tab--active]="tab() === 'exports'"
+          (click)="tab.set('exports')"
+        >
+          Exports<span class="tab__count">{{ exports().length }}</span>
+        </button>
+        <button type="button" class="tab" [class.tab--active]="tab() === 'audit'" (click)="tab.set('audit')">
+          Chain of custody<span class="tab__count">{{ auditEntries().length }}</span>
+        </button>
+      </div>
+
+      <!-- ------------------------------------------------------- evidence -->
+      @if (tab() === 'evidence') {
+        <div class="card__head">
+          <p class="card__hint">
+            Messages pinned to this case. Use "Test delete" to prove a held message cannot be
+            removed.
+          </p>
+          <a class="btn btn--sm" routerLink="/search">Find more evidence</a>
+        </div>
+
+        @if (deletionResult(); as result) {
+          <div style="padding: 0 1.1rem 0.75rem">
+            <div class="banner" [class.banner--danger]="!result.deleted" [class.banner--success]="result.deleted">
+              <strong>{{ result.deleted ? 'Deleted' : 'Deletion blocked' }}</strong> —
+              {{ result.reason }}
+              <button type="button" class="btn btn--sm" style="margin-left: 0.5rem" (click)="deletionResult.set(null)">
+                Dismiss
+              </button>
+            </div>
+          </div>
+        }
+
+        <div class="card__body card__body--flush">
+          @if (evidence().length === 0) {
+            <app-empty
+              title="No evidence yet"
+              hint="Search the archive and add results to this case."
+            />
+          } @else {
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Message</th>
+                    <th class="nowrap">Sent</th>
+                    <th>Added</th>
+                    <th>Flags</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of evidence(); track row.id) {
+                    <tr>
+                      <td>
+                        <a [routerLink]="['/messages', row.messageId]" class="strong">{{ row.subject }}</a>
+                        <div class="small muted">{{ row.sender }}</div>
+                        <div class="small muted mono">{{ row.messageId }}</div>
+                      </td>
+                      <td class="nowrap small">{{ row.messageTimestamp | date: 'dd MMM yyyy' }}</td>
+                      <td class="small">
+                        {{ row.addedAt | ago }}
+                        <div class="muted">{{ row.source | label }}</div>
+                      </td>
+                      <td>
+                        <div class="inline inline--tight">
+                          <app-status-chip [status]="row.communicationType" />
+                          @if (row.onHold) {
+                            <app-status-chip status="ON HOLD" />
+                          }
+                          @if (row.attachmentCount > 0) {
+                            <span class="small muted nowrap">{{ row.attachmentCount }} file(s)</span>
+                          }
+                        </div>
+                      </td>
+                      <td class="row-actions">
+                        <button type="button" class="btn btn--sm" (click)="testDeletion(row.messageId)">
+                          Test delete
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn--sm"
+                          [disabled]="readOnly()"
+                          (click)="removeEvidence(row.id)"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- ----------------------------------------------------- custodians -->
+      @if (tab() === 'custodians') {
+        <div class="card__head">
+          <p class="card__hint">Employees whose communications are in scope for this matter.</p>
+          <button
+            type="button"
+            class="btn btn--sm btn--primary"
+            [disabled]="readOnly()"
+            (click)="custodianModalOpen.set(true)"
+          >
+            Attach custodian
+          </button>
+        </div>
+        <div class="card__body card__body--flush">
+          @if (custodians().length === 0) {
+            <app-empty
+              title="No custodians attached"
+              hint="A hold must be scoped by custodian, so attach at least one."
+            />
+          } @else {
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Custodian</th>
+                    <th>Department</th>
+                    <th>Attached</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (link of custodians(); track link.custodianId) {
+                    <tr>
+                      <td>
+                        <span class="strong">{{ link.displayName }}</span>
+                        <div class="small muted">{{ link.email }}</div>
+                      </td>
+                      <td class="small">{{ link.department }}</td>
+                      <td class="small">
+                        {{ link.addedAt | ago }}
+                        <div class="muted">by {{ link.addedBy }}</div>
+                      </td>
+                      <td class="row-actions">
+                        <button
+                          type="button"
+                          class="btn btn--sm"
+                          [disabled]="readOnly()"
+                          (click)="removeCustodian(link.custodianId)"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- ---------------------------------------------------------- holds -->
+      @if (tab() === 'holds') {
+        <div class="card__head">
+          <p class="card__hint">
+            Holds preserve everything in scope. Propagation runs in the background, so a large
+            scope never blocks the request.
+          </p>
+          <button
+            type="button"
+            class="btn btn--sm btn--primary"
+            [disabled]="readOnly() || custodians().length === 0"
+            (click)="openHoldModal()"
+          >
+            Place hold
+          </button>
+        </div>
+        <div class="card__body card__body--flush">
+          @if (holds().length === 0) {
+            <app-empty title="No holds on this case" hint="Place a hold to freeze the material in scope." />
+          } @else {
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Hold</th>
+                    <th>Scope</th>
+                    <th>Status</th>
+                    <th class="num">Messages held</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (hold of holds(); track hold.id) {
+                    <tr>
+                      <td>
+                        <span class="strong mono">{{ hold.id }}</span>
+                        <div class="small">{{ hold.reason }}</div>
+                        <div class="small muted">
+                          placed {{ hold.placedAt | ago }} by {{ hold.placedBy }}
+                        </div>
+                      </td>
+                      <td class="small">
+                        {{ hold.scope.custodianIds.length }} custodian(s)
+                        @if (hold.scope.after || hold.scope.before) {
+                          <div class="muted">
+                            {{ hold.scope.after ? (hold.scope.after | date: 'dd MMM yyyy') : 'any' }} →
+                            {{ hold.scope.before ? (hold.scope.before | date: 'dd MMM yyyy') : 'now' }}
+                          </div>
+                        }
+                        @if (hold.scope.searchTerms) {
+                          <div class="muted">terms: {{ hold.scope.searchTerms }}</div>
+                        }
+                      </td>
+                      <td>
+                        <app-status-chip [status]="hold.status" />
+                        @if (hold.status === 'PROPAGATING') {
+                          <div class="progress" style="margin-top: 0.4rem; width: 7rem">
+                            <div
+                              class="progress__bar"
+                              [style.width.%]="
+                                hold.estimatedScopeCount
+                                  ? (hold.matchedMessageCount / hold.estimatedScopeCount) * 100
+                                  : 0
+                              "
+                            ></div>
+                          </div>
+                        }
+                      </td>
+                      <td class="num">
+                        {{ hold.matchedMessageCount | number }}
+                        <div class="small muted">of {{ hold.estimatedScopeCount | number }}</div>
+                      </td>
+                      <td class="row-actions">
+                        <button
+                          type="button"
+                          class="btn btn--sm"
+                          [disabled]="hold.status !== 'ACTIVE' || hold.matchedMessageCount === 0"
+                          (click)="requestExport(hold.id)"
+                        >
+                          Export scope
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn--sm"
+                          [disabled]="hold.status === 'RELEASED' || hold.status === 'RELEASING'"
+                          (click)="releaseHold(hold.id)"
+                        >
+                          Release
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- -------------------------------------------------- saved searches -->
+      @if (tab() === 'searches') {
+        <div class="card__head">
+          <p class="card__hint">Queries parked on this case, re-runnable as the archive grows.</p>
+        </div>
+        <div class="card__body card__body--flush">
+          @if (savedSearches().length === 0) {
+            <app-empty
+              title="No saved searches"
+              hint="Run a search, then use 'Save search' to attach it to this case."
+            />
+          } @else {
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Query</th>
+                    <th>Saved</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (saved of savedSearches(); track saved.id) {
+                    <tr>
+                      <td class="strong">{{ saved.name }}</td>
+                      <td class="small mono">{{ saved.criteria.q }}</td>
+                      <td class="small muted">{{ saved.createdAt | ago }}</td>
+                      <td class="row-actions">
+                        <button type="button" class="btn btn--sm" (click)="rerunSavedSearch(saved)">
+                          Re-run
+                        </button>
+                        <a
+                          class="btn btn--sm"
+                          routerLink="/search"
+                          [queryParams]="searchLinkParams(saved)"
+                        >
+                          Open in search
+                        </a>
+                        <button type="button" class="btn btn--sm" (click)="deleteSavedSearch(saved.id)">
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- -------------------------------------------------------- exports -->
+      @if (tab() === 'exports') {
+        <div class="card__head">
+          <p class="card__hint">
+            Export packages produced from this case. Full manifests and checksum verification live
+            on the Exports screen.
+          </p>
+          <a class="btn btn--sm" routerLink="/exports">Open exports</a>
+        </div>
+        <div class="card__body card__body--flush">
+          @if (exports().length === 0) {
+            <app-empty title="No exports yet" hint="Use 'Export evidence' to request a package." />
+          } @else {
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Job</th>
+                    <th>Scope</th>
+                    <th>Status</th>
+                    <th class="num">Items</th>
+                    <th class="num">Size</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (job of exports(); track job.id) {
+                    <tr>
+                      <td>
+                        <span class="strong mono">{{ job.id }}</span>
+                        <div class="small muted">requested {{ job.requestedAt | ago }}</div>
+                      </td>
+                      <td class="small">{{ job.scopeType | label }}</td>
+                      <td>
+                        <app-status-chip [status]="job.status" />
+                        @if (job.status === 'RUNNING' || job.status === 'QUEUED') {
+                          <div class="progress" style="margin-top: 0.4rem; width: 7rem">
+                            <div class="progress__bar" [style.width.%]="job.progress"></div>
+                          </div>
+                        }
+                      </td>
+                      <td class="num">{{ job.itemCount | number }}</td>
+                      <td class="num">{{ job.packageSizeBytes | bytes }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- ---------------------------------------------------------- audit -->
+      @if (tab() === 'audit') {
+        <div class="card__head">
+          <p class="card__hint">
+            Append-only record of everything that happened on this case. Entries can never be
+            edited or deleted.
+          </p>
+          <a class="btn btn--sm" routerLink="/audit" [queryParams]="{ caseId: id() }">
+            Open in audit trail
+          </a>
+        </div>
+        <div class="card__body card__body--flush">
+          <div class="table-wrap">
+            <table class="data">
+              <thead>
+                <tr>
+                  <th class="num">#</th>
+                  <th class="nowrap">When</th>
+                  <th>Action</th>
+                  <th>Detail</th>
+                  <th>Actor</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (entry of auditEntries(); track entry.id) {
+                  <tr>
+                    <td class="num mono small">{{ entry.sequence }}</td>
+                    <td class="nowrap small">{{ entry.timestamp | date: 'dd MMM HH:mm:ss' }}</td>
+                    <td><app-status-chip [status]="entry.action" /></td>
+                    <td class="small">{{ entry.summary }}</td>
+                    <td class="small muted">{{ entry.actor }}</td>
+                  </tr>
+                } @empty {
+                  <tr>
+                    <td colspan="5" class="muted">Nothing recorded yet.</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      }
+    </section>
+  }
+</div>
+
+@if (custodianModalOpen()) {
+  <app-modal
+    title="Attach a custodian"
+    subtitle="Only attached custodians can be used to scope a hold."
+    (dismissed)="custodianModalOpen.set(false)"
+  >
+    <form [formGroup]="custodianForm" class="stack">
+      <label class="field">
+        <span class="field__label">Custodian</span>
+        <select formControlName="custodianId">
+          <option value="">Select…</option>
+          @for (custodian of availableCustodians(); track custodian.id) {
+            <option [value]="custodian.id">
+              {{ custodian.displayName }} — {{ custodian.department }} ({{ custodian.messageCount }} msgs)
+            </option>
+          }
+        </select>
+      </label>
+    </form>
+
+    <div modalActions>
+      <button type="button" class="btn" (click)="custodianModalOpen.set(false)">Cancel</button>
+      <button type="button" class="btn btn--primary" [disabled]="busy()" (click)="addCustodian()">
+        Attach
+      </button>
+    </div>
+  </app-modal>
+}
+
+@if (holdModalOpen()) {
+  <app-modal
+    title="Place a legal hold"
+    subtitle="Scope by custodian, date range and optionally search terms."
+    (dismissed)="holdModalOpen.set(false)"
+  >
+    <form [formGroup]="holdForm" class="stack">
+      <label class="field">
+        <span class="field__label">Reason</span>
+        <input type="text" formControlName="reason" />
+        @if (holdForm.controls.reason.touched && holdForm.controls.reason.invalid) {
+          <span class="field__error">A reason is required for the chain of custody.</span>
+        }
+      </label>
+
+      <div class="field">
+        <span class="field__label">Custodians in scope</span>
+        <div class="stack--sm" style="display: grid; gap: 0.3rem">
+          @for (link of custodians(); track link.custodianId) {
+            <label class="check">
+              <input
+                type="checkbox"
+                [checked]="holdIncludes(link.custodianId)"
+                (change)="toggleHoldCustodian(link.custodianId, $any($event.target).checked)"
+              />
+              <span>{{ link.displayName }} <span class="muted small">{{ link.email }}</span></span>
+            </label>
+          }
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <label class="field">
+          <span class="field__label">From date</span>
+          <input type="date" formControlName="after" />
+        </label>
+        <label class="field">
+          <span class="field__label">To date</span>
+          <input type="date" formControlName="before" />
+        </label>
+      </div>
+
+      <label class="field">
+        <span class="field__label">Search terms (optional)</span>
+        <input type="text" formControlName="searchTerms" placeholder="e.g. restricted list" />
+        <span class="field__hint">
+          Leave blank to hold everything for those custodians in the date range.
+        </span>
+      </label>
+
+      @if (scopePreview() !== null) {
+        <div class="banner banner--info">
+          This scope currently covers <strong>{{ scopePreview() | number }}</strong> message(s).
+          Placing the hold returns immediately and propagates in the background.
+        </div>
+      }
+    </form>
+
+    <div modalActions>
+      <button type="button" class="btn" (click)="holdModalOpen.set(false)">Cancel</button>
+      <button type="button" class="btn" [disabled]="busy()" (click)="previewScope()">
+        Preview scope
+      </button>
+      <button type="button" class="btn btn--danger" [disabled]="busy()" (click)="placeHold()">
+        Place hold
+      </button>
+    </div>
+  </app-modal>
+}

@@ -1,0 +1,186 @@
+<div class="page">
+  <div class="page__head">
+    <div>
+      <h1 class="page__title">Audit trail</h1>
+      <p class="page__subtitle">
+        Append-only chain of custody. Every significant action is recorded with a timestamp, an
+        actor, the target entity and — where it applies — the before and after state. Entries
+        cannot be modified or deleted through any API.
+      </p>
+    </div>
+  </div>
+
+  <form class="card" [formGroup]="form" (ngSubmit)="apply()">
+    <div class="card__body stack">
+      <div class="form-grid">
+        <label class="field">
+          <span class="field__label">Case</span>
+          <select formControlName="caseId">
+            <option value="">All cases</option>
+            @for (item of cases(); track item.id) {
+              <option [value]="item.id">{{ item.caseNumber }} — {{ item.name }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="field__label">Actor</span>
+          <select formControlName="actor">
+            <option value="">Anyone</option>
+            @for (actor of actors(); track actor) {
+              <option [value]="actor">{{ actor }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="field__label">Action</span>
+          <select formControlName="action">
+            <option value="">Any action</option>
+            @for (action of actions; track action) {
+              <option [value]="action">{{ action | label }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="field__label">Text</span>
+          <input type="search" formControlName="q" placeholder="Summary or target ID" />
+        </label>
+
+        <label class="field">
+          <span class="field__label">From</span>
+          <input type="date" formControlName="after" />
+        </label>
+
+        <label class="field">
+          <span class="field__label">To</span>
+          <input type="date" formControlName="before" />
+        </label>
+
+        <label class="field">
+          <span class="field__label">Per page</span>
+          <select formControlName="size">
+            <option [value]="25">25</option>
+            <option [value]="50">50</option>
+            <option [value]="100">100</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="inline">
+        <button type="submit" class="btn btn--primary">Apply filters</button>
+        <button type="button" class="btn" (click)="reset()">Clear</button>
+      </div>
+    </div>
+  </form>
+
+  <section class="card" style="margin-top: 1rem">
+    <div class="card__head">
+      <div>
+        <h2 class="card__title">
+          @if (page(); as p) {
+            {{ p.total | number }} entr{{ p.total === 1 ? 'y' : 'ies' }}
+          } @else {
+            Entries
+          }
+        </h2>
+        <p class="card__hint">
+          Newest first. Select a row to see the recorded before/after detail.
+        </p>
+      </div>
+      <div class="inline">
+        <button type="button" class="btn btn--sm" [disabled]="pageIndex() === 0" (click)="step(-1)">
+          Previous
+        </button>
+        <span class="small muted">Page {{ pagination().current }} of {{ pagination().total }}</span>
+        <button
+          type="button"
+          class="btn btn--sm"
+          [disabled]="pagination().current >= pagination().total"
+          (click)="step(1)"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+
+    <div class="card__body card__body--flush">
+      @if (error()) {
+        <div style="padding: 1rem">
+          <app-error-band title="Audit service unavailable" [message]="error()!">
+            <button type="button" class="btn btn--sm" (click)="load()">Retry</button>
+          </app-error-band>
+        </div>
+      } @else if (loading()) {
+        <app-loading message="Reading the audit log…" />
+      } @else if (page(); as p) {
+        @if (p.entries.length === 0) {
+          <app-empty title="No matching entries" hint="Widen the filters or clear them." />
+        } @else {
+          <div class="table-wrap">
+            <table class="data">
+              <thead>
+                <tr>
+                  <th class="num">Seq</th>
+                  <th class="nowrap">Timestamp</th>
+                  <th>Action</th>
+                  <th>Target</th>
+                  <th>Detail</th>
+                  <th>Actor</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (entry of p.entries; track entry.id) {
+                  <tr (click)="toggle(entry)" style="cursor: pointer">
+                    <td class="num mono small">{{ entry.sequence }}</td>
+                    <td class="nowrap small">
+                      {{ entry.timestamp | date: 'dd MMM yyyy HH:mm:ss' }}
+                      <div class="muted">{{ entry.timestamp | ago }}</div>
+                    </td>
+                    <td><app-status-chip [status]="entry.action" /></td>
+                    <td class="small">
+                      <div>{{ entry.targetType | label }}</div>
+                      <div class="muted mono">{{ entry.targetId }}</div>
+                      @if (entry.caseId) {
+                        <a
+                          class="small"
+                          [routerLink]="['/cases', entry.caseId]"
+                          (click)="$event.stopPropagation()"
+                        >
+                          open case
+                        </a>
+                      }
+                    </td>
+                    <td class="small">{{ entry.summary }}</td>
+                    <td class="small muted">{{ entry.actor }}</td>
+                  </tr>
+                  @if (expanded() === entry.id && hasDetail(entry)) {
+                    <tr>
+                      <td colspan="6">
+                        <div class="grid grid--halves">
+                          @if (entry.before) {
+                            <div>
+                              <p class="field__label">Before</p>
+                              <pre class="pre">{{ entry.before | json }}</pre>
+                            </div>
+                          }
+                          @if (entry.after) {
+                            <div>
+                              <p class="field__label">After</p>
+                              <pre class="pre">{{ entry.after | json }}</pre>
+                            </div>
+                          }
+                        </div>
+                      </td>
+                    </tr>
+                  }
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      }
+    </div>
+  </section>
+</div>
