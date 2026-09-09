@@ -2,8 +2,8 @@ package com.stown.exportaudit.evidence;
 
 import com.stown.exportaudit.domain.ExportScope;
 import com.stown.exportaudit.domain.MessageDocument;
-import com.stown.exportaudit.repository.MessageRepository;
 import com.stown.exportaudit.service.CaseHoldClient;
+import com.stown.exportaudit.service.IngestionClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -12,9 +12,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -24,13 +24,13 @@ class CaseHoldEvidenceProviderTest {
     private CaseHoldClient caseHoldClient;
 
     @Mock
-    private MessageRepository messageRepository;
+    private IngestionClient ingestionClient;
 
     private CaseHoldEvidenceProvider evidenceProvider;
 
     @BeforeEach
     void setUp() {
-        evidenceProvider = new CaseHoldEvidenceProvider(caseHoldClient, messageRepository);
+        evidenceProvider = new CaseHoldEvidenceProvider(caseHoldClient, ingestionClient);
     }
 
     @Test
@@ -47,8 +47,8 @@ class CaseHoldEvidenceProviderTest {
                 .messageTimestamp(Instant.parse("2026-09-01T10:00:00Z"))
                 .build();
 
-        when(messageRepository.findById("msg-1")).thenReturn(Optional.of(msg1));
-        when(messageRepository.findById("msg-2")).thenReturn(Optional.of(msg2));
+        when(ingestionClient.getMessages(anySet()))
+                .thenReturn(List.of(msg1, msg2));
 
         List<MessageDocument> result = evidenceProvider.findEvidence(
                 EvidenceQuery.builder()
@@ -73,7 +73,8 @@ class CaseHoldEvidenceProviderTest {
                 .messageTimestamp(Instant.parse("2026-09-01T10:00:00Z"))
                 .build();
 
-        when(messageRepository.findById("msg-1")).thenReturn(Optional.of(msg1));
+        when(ingestionClient.getMessages(anySet()))
+                .thenReturn(List.of(msg1));
 
         List<MessageDocument> result = evidenceProvider.findEvidence(
                 EvidenceQuery.builder()
@@ -111,7 +112,9 @@ class CaseHoldEvidenceProviderTest {
     }
 
     @Test
-    void skipsMessagesNotFoundInMongo() {
+    void skipsMessagesNotFoundInIngestion() {
+        // The ingestion read API omits ids that no longer exist, so only the
+        // messages that resolve are returned to the provider.
         when(caseHoldClient.getCaseCommunicationIds("case-1"))
                 .thenReturn(List.of("msg-1", "msg-missing"));
 
@@ -120,8 +123,8 @@ class CaseHoldEvidenceProviderTest {
                 .messageTimestamp(Instant.parse("2026-09-01T10:00:00Z"))
                 .build();
 
-        when(messageRepository.findById("msg-1")).thenReturn(Optional.of(msg1));
-        when(messageRepository.findById("msg-missing")).thenReturn(Optional.empty());
+        when(ingestionClient.getMessages(anySet()))
+                .thenReturn(List.of(msg1));
 
         List<MessageDocument> result = evidenceProvider.findEvidence(
                 EvidenceQuery.builder()

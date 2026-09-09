@@ -8,14 +8,18 @@ import com.stown.exportaudit.evidence.EvidenceProvider;
 import com.stown.exportaudit.evidence.EvidenceQuery;
 import com.stown.exportaudit.repository.AuditEventRepository;
 import com.stown.exportaudit.repository.ExportJobRepository;
-import com.stown.exportaudit.repository.MessageRepository;
 import com.stown.exportaudit.service.AuditService;
+import com.stown.exportaudit.service.CaseHoldClient;
 import com.stown.exportaudit.service.ExportJobService;
+import com.stown.exportaudit.service.IngestionClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MinIOContainer;
@@ -26,15 +30,26 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 /**
  * Integration test that boots the application against real MongoDB, Kafka and
- * MinIO containers and exercises the full export and audit pipelines end to
- * end. Tagged {@code integration} and excluded from the default surefire run;
- * run with {@code -Dexcluded.test.groups=}.
+ * MinIO containers and exercises the export and audit pipelines end to end.
+ *
+ * <p>The export service's own data (the {@code export_jobs} and
+ * {@code audit_events} collections) is read and written against real MongoDB.
+ * The two external dependencies the export service talks to over HTTP — the
+ * Case & Hold service (evidence IDs) and the ingestion service (message
+ * content) — are stubbed at their client boundary, because those services are
+ * not started here. This is exactly the shape NFR-1 mandates: each service owns
+ * its data, and the export service reaches message content through the
+ * ingestion API rather than the shared {@code messages} MongoDB collection.
+ *
+ * <p>Tagged {@code integration} and excluded from the default surefire run; run
+ * with {@code -Dexcluded.test.groups=}.
  */
 @Tag("integration")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
@@ -82,16 +97,16 @@ class ExportAuditIntegrationTest {
     private AuditEventRepository auditEventRepository;
 
     @Autowired
-    private MessageRepository messageRepository;
+    private EvidenceProvider evidenceProvider;
 
     @Autowired
-    private EvidenceProvider evidenceProvider;
+    private IngestionClientStub ingestionClientStub;
 
     @BeforeEach
     void cleanUp() {
         exportJobRepository.deleteAll();
         auditEventRepository.deleteAll();
-        messageRepository.deleteAll();
+        ingestionClientStub.clear();
     }
 
     @Test
@@ -136,8 +151,8 @@ class ExportAuditIntegrationTest {
     }
 
     @Test
-    void evidenceProviderReadsMessagesFromMongo() {
-        messageRepository.insert(MessageDocument.builder()
+    void evidenceProviderReadsMessagesViaIngestionApi() {
+        ingestionClientStub.setMessages(List.of(MessageDocument.builder()
                 .id("msg-1")
                 .deduplicationKey("dedup-1")
                 .communicationType("EMAIL")
@@ -146,7 +161,7 @@ class ExportAuditIntegrationTest {
                 .subject("Subject")
                 .body("Body")
                 .messageTimestamp(Instant.parse("2026-09-01T10:00:00Z"))
-                .build());
+                .build()));
 
         List<MessageDocument> messages = evidenceProvider.findEvidence(
                 EvidenceQuery.builder()
@@ -161,8 +176,8 @@ class ExportAuditIntegrationTest {
 
     @Test
     void exportJobLifecycleIsTrackedAndAudited() {
-        // Insert evidence into MongoDB.
-        messageRepository.insert(MessageDocument.builder()
+        // Provide the evidence the ingestion service would have returned.
+        ingestionClientStub.setMessages(List.of(MessageDocument.builder()
                 .id("msg-export-1")
                 .deduplicationKey("dedup-export-1")
                 .communicationType("EMAIL")
@@ -171,7 +186,7 @@ class ExportAuditIntegrationTest {
                 .subject("Export Subject")
                 .body("Export body")
                 .messageTimestamp(Instant.parse("2026-09-01T10:00:00Z"))
-                .build());
+                .build()));
 
         // Create the export job (synchronously triggers Kafka event + audit).
         ExportJobDocument job = exportJobService.createJob(
@@ -207,5 +222,72 @@ class ExportAuditIntegrationTest {
         assertThat(auditEvents.stream()
                 .anyMatch(e -> "EXPORT_COMPLETED".equals(e.getAction())))
                 .isTrue();
+    }
+
+    /**
+     * Stub for the ingestion service read API. The real service is not started
+     * in this test, so message content is supplied here at the HTTP boundary
+     * the export service actually calls. The export service's own MongoDB
+     * collections are still exercised for real above.
+     */
+    static class IngestionClientStub extends IngestionClient {
+        private volatile List<MessageDocument> messages = List.of();
+
+        IngestionClientStub() {
+            super(null, null);
+        }
+
+        @Override
+        public List<MessageDocument> getMessages(Set<String> ids) {
+            return List.copyOf(messages);
+        }
+
+        void setMessages(List<MessageDocument> messages) {
+            this.messages = messages == null ? List.of() : messages;
+        }
+
+        void clear() {
+            this.messages = List.of();
+        }
+    }
+
+    /**
+     * Replaces the two HTTP clients the export service uses to reach the Case
+     * & Hold and ingestion services, which are not started in this test.
+     * The beans are given distinct names (not the @Service bean names) and
+     * marked @Primary so they win injection over the real HTTP clients, which
+     * avoids bean-definition override conflicts while keeping the export
+     * service's own MongoDB collections real. The Case & Hold stub returns the
+     * ids of whatever messages the ingestion stub is holding so the two stay
+     * consistent for a case export.
+     */
+    @TestConfiguration
+    static class ExternalClientStubsConfig {
+
+        @Bean
+        @Primary
+        IngestionClientStub ingestionClientStub() {
+            return new IngestionClientStub();
+        }
+
+        @Bean
+        @Primary
+        CaseHoldClient caseHoldClientStub(IngestionClientStub ingestionClientStub) {
+            return new CaseHoldClient(null, null) {
+                @Override
+                public List<String> getCaseCommunicationIds(String caseId) {
+                    return ingestionClientStub.getMessages(null).stream()
+                            .map(MessageDocument::getId)
+                            .toList();
+                }
+
+                @Override
+                public List<String> getHoldCommunicationIds(String holdId) {
+                    return ingestionClientStub.getMessages(null).stream()
+                            .map(MessageDocument::getId)
+                            .toList();
+                }
+            };
+        }
     }
 }

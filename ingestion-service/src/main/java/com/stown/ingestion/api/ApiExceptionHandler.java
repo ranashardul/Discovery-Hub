@@ -67,6 +67,14 @@ public class ApiExceptionHandler {
         return build(HttpStatus.NOT_FOUND, exception.getMessage(), request, List.of());
     }
 
+
+    @ExceptionHandler(MessageNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleMessageNotFound(
+            MessageNotFoundException exception,
+            HttpServletRequest request
+    ) {
+        return build(HttpStatus.NOT_FOUND, exception.getMessage(), request, List.of());
+
     /**
      * A legal hold blocks deletion. Answering 409 rather than 403 says the
      * request is valid but conflicts with the current state of the resource,
@@ -89,6 +97,7 @@ public class ApiExceptionHandler {
                 : exception.getMessage() + "; holds: " + String.join(", ", exception.getHoldIds());
 
         return build(HttpStatus.CONFLICT, detail, request, List.of());
+
     }
 
     @ExceptionHandler({
