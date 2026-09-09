@@ -1,7 +1,9 @@
 package com.stown.search;
 
+import com.stown.search.api.ReindexResponse;
 import com.stown.search.api.SearchResponse;
 import com.stown.search.api.SearchResultItem;
+import com.stown.search.api.SearchStatsResponse;
 import com.stown.search.domain.AttachmentMetadata;
 import com.stown.search.domain.MessageDocument;
 import com.stown.search.index.SearchDocument;
@@ -178,10 +180,202 @@ class SearchIntegrationTest {
         assertThat(response.getBody()).contains("\"fieldErrors\"").contains("\"q\"");
     }
 
+    /**
+     * The disposition contract end to end: ingestion deletes the message from
+     * MongoDB and publishes message.disposed, after which the document must
+     * disappear from the index. Without this the subject and body stay
+     * searchable after the record has been legally destroyed.
+     */
+    @Test
+    void removesDisposedMessagesFromTheIndex() {
+        String messageId = UUID.randomUUID().toString();
+
+        mongoTemplate.save(MessageDocument.builder()
+                .id(messageId)
+                .deduplicationKey("c".repeat(64))
+                .communicationType("EMAIL")
+                .sender("dave@example.com")
+                .recipients(List.of("erin@example.com"))
+                .subject("Quarterly disposition candidate")
+                .body("This message is scheduled for disposition after its retention period.")
+                .messageTimestamp(Instant.parse("2026-09-08T03:00:00Z"))
+                .createdAt(Instant.now())
+                .build());
+
+        publishMessageIngested(UUID.randomUUID().toString(), messageId);
+        awaitIndexedDocument(messageId);
+
+        // Ingestion removes the message before publishing the event.
+        mongoTemplate.remove(
+                org.springframework.data.mongodb.core.query.Query.query(
+                        org.springframework.data.mongodb.core.query.Criteria.where("_id").is(messageId)
+                ),
+                MessageDocument.class
+        );
+        publishMessageDisposed(UUID.randomUUID().toString(), messageId, "RETENTION");
+
+        awaitAbsentFromIndex(messageId, "disposition");
+    }
+
+    /**
+     * Redelivery must be a no-op. The event is at-least-once, so a second
+     * delivery of an already-applied disposition must not fail the listener and
+     * push a valid event to the dead letter topic.
+     */
+    @Test
+    void toleratesARedeliveredDispositionForAnAbsentDocument() {
+        String messageId = UUID.randomUUID().toString();
+
+        publishMessageDisposed(UUID.randomUUID().toString(), messageId, "MANUAL");
+        publishMessageDisposed(UUID.randomUUID().toString(), messageId, "MANUAL");
+
+        SearchStatsResponse stats = await(() -> {
+            SearchStatsResponse body = restTemplate
+                    .getForEntity(url("/api/search/stats"), SearchStatsResponse.class)
+                    .getBody();
+            return body == null ? null : body;
+        }, "stats endpoint never responded");
+
+        assertThat(stats.pendingFailures()).isZero();
+    }
+
+    /**
+     * Reindex is the only path that can populate an index from messages that
+     * were stored before this service ever saw them: they carry no pending
+     * event, and the reconciliation back-fill deliberately looks only at the
+     * newest batch.
+     */
+    @Test
+    void reindexIndexesMessagesThatNoEventWillEverCover() {
+        String messageId = UUID.randomUUID().toString();
+
+        mongoTemplate.save(MessageDocument.builder()
+                .id(messageId)
+                .deduplicationKey("d".repeat(64))
+                .communicationType("CHAT")
+                .sender("frank@example.com")
+                .recipients(List.of("grace@example.com"))
+                .subject("Historic backfill candidate")
+                .body("Stored directly, with no message.ingested event published for it.")
+                .messageTimestamp(Instant.parse("2026-09-08T03:00:00Z"))
+                .createdAt(Instant.now())
+                .holdIds(List.of("hold-backfill-1"))
+                .holdCount(1)
+                .dispositionStatus("ON_HOLD")
+                .build());
+
+        ResponseEntity<ReindexResponse> response = restTemplate.postForEntity(
+                url("/api/search/reindex"),
+                null,
+                ReindexResponse.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().scanned()).isPositive();
+
+        SearchDocument indexed = awaitIndexedDocument(messageId);
+        assertThat(indexed.getSubject()).isEqualTo("Historic backfill candidate");
+        assertThat(indexed.getHoldIds()).containsExactly("hold-backfill-1");
+
+        // holdIds is mapped as a keyword array, so filtering by one hold works.
+        assertThat(messageIds("/api/search?q=backfill&holdId=hold-backfill-1")).contains(messageId);
+        assertThat(messageIds("/api/search?q=backfill&holdId=hold-does-not-exist")).doesNotContain(messageId);
+        assertThat(messageIds("/api/search?q=backfill&onHold=true")).contains(messageId);
+    }
+
+    /**
+     * The second line of defence behind the disposition listener. If a
+     * message.disposed event never reaches this service - dropped, or published
+     * to a broker it does not consume, which happens when a shared database is
+     * written by another environment - the document would otherwise stay
+     * searchable forever after the record was destroyed.
+     */
+    @Test
+    void reconciliationRemovesDocumentsWhoseMessageIsGone() {
+        String messageId = UUID.randomUUID().toString();
+
+        mongoTemplate.save(MessageDocument.builder()
+                .id(messageId)
+                .deduplicationKey("e".repeat(64))
+                .communicationType("EMAIL")
+                .sender("orphan@example.com")
+                .recipients(List.of("reviewer@example.com"))
+                .subject("Orphan sweep candidate")
+                .body("Indexed, then deleted from MongoDB without any disposition event.")
+                .messageTimestamp(Instant.parse("2026-09-08T03:00:00Z"))
+                .createdAt(Instant.now())
+                .build());
+
+        publishMessageIngested(UUID.randomUUID().toString(), messageId);
+        awaitIndexedDocument(messageId);
+
+        // Delete from MongoDB and publish nothing: exactly the case the
+        // disposition listener cannot see.
+        mongoTemplate.remove(
+                org.springframework.data.mongodb.core.query.Query.query(
+                        org.springframework.data.mongodb.core.query.Criteria.where("_id").is(messageId)
+                ),
+                MessageDocument.class
+        );
+
+        assertThat(restTemplate.getForEntity(
+                url("/api/search/messages/" + messageId), String.class
+        ).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        // The scheduled job runs every 3s in this context.
+        awaitAbsentFromIndex(messageId, "orphan");
+    }
+
     private List<String> messageIds(String path) {
         SearchResponse response = restTemplate.getForEntity(url(path), SearchResponse.class).getBody();
         assertThat(response).isNotNull();
         return response.results().stream().map(SearchResultItem::messageId).toList();
+    }
+
+    private void publishMessageDisposed(String eventId, String messageId, String reason) {
+        String payload = """
+                {"eventId":"%s","messageId":"%s","externalMessageId":"ext-%s",\
+                "communicationType":"EMAIL","reason":"%s","attachmentsPurged":0,\
+                "retentionUntil":"2026-09-08T03:00:00Z","disposedAt":"2026-09-09T03:00:00Z"}
+                """.formatted(eventId, messageId, messageId, reason);
+
+        publish("message.disposed", messageId, payload);
+    }
+
+    /**
+     * Waits until the document is gone from both the by-id lookup and full
+     * text search.
+     *
+     * <p>Both are needed. A get by id is realtime and sees a delete straight
+     * away, while search only reflects it after the next refresh, so asserting
+     * on the id alone passes while the message is still returned by a query.
+     */
+    private void awaitAbsentFromIndex(String messageId, String query) {
+        await(() -> {
+            ResponseEntity<String> byId = restTemplate.getForEntity(
+                    url("/api/search/messages/" + messageId),
+                    String.class
+            );
+            if (byId.getStatusCode() != HttpStatus.NOT_FOUND) {
+                return null;
+            }
+            return messageIds("/api/search?q=" + query).contains(messageId) ? null : "gone";
+        }, "message " + messageId + " was still indexed after removal");
+    }
+
+    private void publish(String topic, String key, String payload) {
+        Map<String, Object> config = new HashMap<>();
+        config.put(BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
+        config.put(KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
+        config.put(VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
+
+        KafkaTemplate<String, String> template =
+                new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(config));
+
+        template.send(topic, key, payload);
+        template.flush();
+        template.destroy();
     }
 
     private void publishMessageIngested(String eventId, String messageId) {

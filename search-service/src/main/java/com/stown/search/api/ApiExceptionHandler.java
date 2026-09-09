@@ -1,6 +1,7 @@
 package com.stown.search.api;
 
 import com.stown.search.service.InvalidSearchRequestException;
+import com.stown.search.service.ReindexInProgressException;
 import com.stown.search.service.SearchExecutionException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -88,6 +89,14 @@ public class ApiExceptionHandler {
                         "Parameter value is not valid"
                 ))
         );
+    }
+
+    @ExceptionHandler(ReindexInProgressException.class)
+    public ResponseEntity<ApiErrorResponse> handleReindexInProgress(
+            ReindexInProgressException exception,
+            HttpServletRequest request
+    ) {
+        return build(HttpStatus.CONFLICT, exception.getMessage(), request, List.of());
     }
 
     @ExceptionHandler(SearchExecutionException.class)

@@ -28,4 +28,13 @@ public class SearchIndexFailure {
     private Instant lastFailedAt;
     private boolean resolved;
     private Instant resolvedAt;
+
+    /**
+     * Set once {@code attempts} exceeds the configured cap. Reconciliation
+     * skips abandoned entries, so a message that can never be indexed - one
+     * disposed from MongoDB, for instance - stops being retried every cycle
+     * instead of being carried forever.
+     */
+    private boolean abandoned;
+    private Instant abandonedAt;
 }

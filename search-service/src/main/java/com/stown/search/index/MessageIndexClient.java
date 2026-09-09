@@ -1,11 +1,15 @@
 package com.stown.search.index;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.Result;
 import co.elastic.clients.elasticsearch._types.SortOptions;
+import co.elastic.clients.elasticsearch._types.SortOrder;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
+import co.elastic.clients.elasticsearch.core.DeleteResponse;
 import co.elastic.clients.elasticsearch.core.GetResponse;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.HighlightField;
+import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.util.NamedValue;
 import com.stown.search.config.SearchProperties;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +18,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Thin wrapper around the official Elasticsearch Java client that owns the
@@ -23,6 +28,9 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class MessageIndexClient {
+
+    /** Elasticsearch default for {@code index.max_result_window}. */
+    private static final int MAX_PAGE_SIZE = 10_000;
 
     private final ElasticsearchClient elasticsearchClient;
     private final SearchProperties properties;
@@ -74,6 +82,7 @@ public class MessageIndexClient {
                             .properties("indexedAt", property -> property.date(date -> date))
                             .properties("attachmentCount", property -> property.integer(integer -> integer))
                             .properties("holdCount", property -> property.integer(integer -> integer))
+                            .properties("holdIds", property -> property.keyword(keyword -> keyword))
                             .properties("dispositionStatus", property -> property.keyword(keyword -> keyword))));
 
             log.info("Created Elasticsearch index index={}", index);
@@ -108,11 +117,72 @@ public class MessageIndexClient {
         return response.found() ? response.source() : null;
     }
 
+    /**
+     * Removes a document by id. Disposition events are delivered at least once,
+     * so deleting an absent document is treated as success rather than an
+     * error.
+     *
+     * @return true when a document was actually removed
+     */
+    public boolean delete(String messageId) throws IOException {
+        ensureIndex();
+        DeleteResponse response = elasticsearchClient.delete(request -> request
+                .index(indexName())
+                .id(messageId));
+
+        return response.result() == Result.Deleted;
+    }
+
     public boolean exists(String messageId) throws IOException {
         ensureIndex();
         return elasticsearchClient
                 .exists(request -> request.index(indexName()).id(messageId))
                 .value();
+    }
+
+    /**
+     * Returns up to {@code size} document ids in ascending id order, starting
+     * after {@code afterId}.
+     *
+     * <p>Uses {@code search_after} rather than {@code from}/{@code size}
+     * because deep paging is capped at 10,000 by {@code index.max_result_window},
+     * and this walks the entire index. Sources are not fetched: only the id is
+     * needed.
+     *
+     * @param afterId id to resume after, or null to start from the beginning
+     */
+    public List<String> listMessageIds(String afterId, int size) throws IOException {
+        ensureIndex();
+
+        // index.max_result_window caps a single page at 10,000 by default, and
+        // that applies to size even with search_after. Exceeding it fails the
+        // whole request, which would disable a caller that pages through the
+        // index rather than just returning fewer results, so clamp instead.
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        if (pageSize < size) {
+            log.warn("Requested page size {} exceeds the {} limit; using {}", size, MAX_PAGE_SIZE, pageSize);
+        }
+
+        SearchResponse<Void> response = elasticsearchClient.search(request -> {
+            request.index(indexName())
+                    .query(query -> query.matchAll(matchAll -> matchAll))
+                    .size(pageSize)
+                    .source(source -> source.fetch(false))
+                    .sort(sort -> sort.field(field -> field
+                            .field("messageId")
+                            .order(SortOrder.Asc)));
+
+            if (afterId != null) {
+                request.searchAfter(value -> value.stringValue(afterId));
+            }
+
+            return request;
+        }, Void.class);
+
+        return response.hits().hits().stream()
+                .map(Hit::id)
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     public long count() throws IOException {

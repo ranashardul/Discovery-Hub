@@ -91,7 +91,8 @@ public class SearchService {
             return new SearchStatsResponse(
                     indexClient.count(),
                     indexClient.indexName(),
-                    indexingService.pendingFailureCount()
+                    indexingService.pendingFailureCount(),
+                    indexingService.abandonedFailureCount()
             );
         } catch (IOException exception) {
             log.error("Stats lookup failed reason={}", exception.getMessage());

@@ -34,5 +34,6 @@ public class SearchDocument {
     private List<String> attachmentFilenames;
     private String indexedAt;
     private int holdCount;
+    private List<String> holdIds;
     private String dispositionStatus;
 }

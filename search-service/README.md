@@ -7,6 +7,8 @@ Search side of the Discovery Hub legal-discovery platform.
 - Consume the `message.ingested` Kafka event published by **ingestion-service**.
 - Read the corresponding message from MongoDB (`legal_discovery.messages`, read-only).
 - Index it into Elasticsearch (index `messages`, document id == `messageId`).
+- Consume `message.disposed` and **delete** the document, so a message removed
+  under retention or legal disposition stops being searchable.
 - Expose a read-only search API over the indexed corpus.
 - Guarantee that every ingested message is searchable within **30 seconds**
   (event-driven indexing plus a reconciliation safety net).
@@ -22,10 +24,16 @@ ingestion-service ──(message.ingested)──▶ Kafka ──▶ search-servi
                                                         │
                                                         ▼
                                        Elasticsearch index "messages"
+                                                        ▲
+ingestion-service ──(message.disposed)───▶ Kafka ───────┘  (delete)
                                                         │
                                                         ▼
                                             GET /api/search (REST)
 ```
+
+Two topics, two consumer groups. `message.ingested` adds and updates documents;
+`message.disposed` removes them. They are tracked separately so replaying one
+does not replay the other.
 
 ## Event contract consumed
 
@@ -58,6 +66,39 @@ spring:
 
 Unknown properties are ignored so the event schema can evolve.
 
+### Disposition
+
+Topic `message.disposed`, consumer group `search-service-disposed`, dead-letter
+`message.disposed.dlt`.
+
+```json
+{
+  "eventId": "1f0e3dad-9998-4bd7-9c2f-9a1b6c5d4e3f",
+  "messageId": "11111111-1111-1111-1111-111111111111",
+  "externalMessageId": "<external@example.com>",
+  "communicationType": "EMAIL",
+  "reason": "RETENTION",
+  "attachmentsPurged": 1,
+  "retentionUntil": "2026-09-08T03:00:00Z",
+  "disposedAt": "2026-09-09T03:00:00Z"
+}
+```
+
+Ingestion publishes this **after** deleting the message from MongoDB and
+purging its attachments. Leaving the Elasticsearch document in place would keep
+the subject and body searchable after the record was legally destroyed, so this
+consumer is part of the disposition contract rather than an optimisation.
+
+Delivery is at-least-once, so the handler is idempotent: deleting an absent
+document is a success. Any outstanding `search_index_failures` entry for the
+message is dropped at the same time, because a disposed message can never be
+indexed and would otherwise be retried on every reconciliation cycle forever.
+
+The consumer needs its own listener container: the defaults in
+`application.yaml` bind every value to `MessageIngestedEvent`, so reusing them
+would deserialise a disposition into the wrong type. See
+`com.stown.search.config.KafkaConfig#disposedListenerFactory`.
+
 ## Elasticsearch mapping
 
 Created idempotently at startup (and lazily before the first write) if the
@@ -79,6 +120,7 @@ index does not already exist.
 | `indexedAt`            | date                              | observability              |
 | `attachmentCount`      | integer                           | display + `hasAttachments` |
 | `holdCount`            | integer                           | `onHold` filter            |
+| `holdIds`              | keyword (array)                   | `holdId` filter            |
 | `dispositionStatus`    | keyword                           | exact filter               |
 
 Indexing uses `messageId` as the Elasticsearch document id, so replays and
@@ -146,7 +188,8 @@ curl "http://localhost:8082/api/search?q=merger%20agreement&communicationType=EM
 | `sender`            | keyword   | Exact match on the sender address                          |
 | `recipient`         | keyword   | Exact match against any entry in `recipients`              |
 | `threadId`          | keyword   | Exact match                                                |
-| `dispositionStatus` | keyword   | Exact match                                                |
+| `dispositionStatus` | keyword   | Exact match: `ACTIVE` or `ON_HOLD`                         |
+| `holdId`            | keyword   | Messages under one specific legal hold                     |
 | `onHold`            | boolean   | `true` = under at least one hold, `false` = under none     |
 | `hasAttachments`    | boolean   | `true` = at least one attachment, `false` = none           |
 | `after`             | ISO-8601  | `messageTimestamp` lower bound, inclusive                  |
@@ -193,8 +236,47 @@ curl "http://localhost:8082/api/search/stats"
 ```
 
 ```json
-{ "indexedCount": 4211, "index": "messages", "pendingFailures": 0 }
+{
+  "indexedCount": 4211,
+  "index": "messages",
+  "pendingFailures": 0,
+  "abandonedFailures": 0
+}
 ```
+
+`pendingFailures` counts entries still being retried. `abandonedFailures`
+counts those that exceeded `SEARCH_FAILURE_MAX_ATTEMPTS` and are no longer
+retried; a non-zero value needs investigating, because those messages are in
+MongoDB but not in the index.
+
+### Rebuild the index
+
+```bash
+curl -X POST "http://localhost:8082/api/search/reindex"
+curl -X POST "http://localhost:8082/api/search/reindex?force=true"
+```
+
+```json
+{ "scanned": 10332, "indexed": 10332, "skipped": 0, "failed": 0, "elapsedMs": 18384 }
+```
+
+Walks the whole `messages` collection and indexes it. Needed because neither
+normal path can populate an index from a database that already holds messages:
+event-driven indexing only fires for newly ingested messages, and the
+reconciliation back-fill deliberately looks only at the newest batch. Pointing
+the service at a shared cluster or a restored backup without running this
+leaves all but the most recent handful invisible, with nothing logged to say so.
+
+Also the supported way to rebuild after a mapping change, which requires
+dropping the index first.
+
+- Without `force`, documents already present are skipped, so a re-run after a
+  partial pass is cheap.
+- With `force=true` every message is re-indexed, which is what a mapping change
+  needs.
+- Synchronous, and only one runs at a time; a concurrent request gets `409`.
+
+Measured: 10,332 messages from a MongoDB Atlas cluster in ~18 seconds.
 
 ### Actuator
 
@@ -233,7 +315,14 @@ Mirrors ingestion-service:
 | `SEARCH_INDEX`                  | `messages`                                       | Index name                                     |
 | `SEARCH_RECONCILE_INTERVAL_MS`  | `60000`                                          | Reconciliation period                          |
 
+| `SEARCH_DISPOSED_TOPIC`         | `message.disposed`                               | Disposition topic                              |
+| `SEARCH_FAILURE_MAX_ATTEMPTS`   | `10`                                             | Indexing attempts before a failure is abandoned |
+| `SEARCH_ORPHAN_SWEEP_ENABLED`   | `true`                                           | Delete documents whose message is gone         |
+| `SEARCH_ORPHAN_SWEEP_BATCH_SIZE`| `500`                                            | Documents examined per sweep (capped at 10000) |
+| `SEARCH_REINDEX_BATCH_SIZE`     | `500`                                            | Page size used when walking MongoDB            |
+
 Additional tunables (all optional): `SEARCH_RECONCILE_BATCH_SIZE` (100),
+`SEARCH_DISPOSED_DEAD_LETTER_TOPIC`, `SEARCH_DISPOSED_CONSUMER_GROUP`,
 `SEARCH_RECONCILE_BACKFILL_ENABLED` (true), `SEARCH_MAX_PAGE_SIZE` (100),
 `SEARCH_SNIPPET_LENGTH` (240), `SEARCH_TOPIC`, `SEARCH_DEAD_LETTER_TOPIC`,
 `SEARCH_RETRY_ATTEMPTS` (3), `SEARCH_RETRY_INITIAL_INTERVAL_MS` (1000),
@@ -256,7 +345,22 @@ ever hardcoded.
   `resolved` to `true`.
 - **Reconciliation**: a scheduled job (default every 60s) retries unresolved
   failures and back-fills up to 100 messages that exist in MongoDB but are
-  missing from Elasticsearch.
+  missing from Elasticsearch. The back-fill is a safety net for small, fresh
+  gaps, not a way to populate an index — use the reindex endpoint for that.
+- **Orphan sweep**: the same job walks the index a batch per cycle and deletes
+  documents whose message no longer exists in MongoDB. The disposition listener
+  only removes what it hears about, so a dropped event — or a deletion made
+  against a shared database by a process publishing to a different broker —
+  would otherwise leave destroyed content permanently searchable. Deletes only
+  ids MongoDB positively reported as absent; if the lookup itself fails the
+  sweep aborts without deleting anything, so a database error is never mistaken
+  for "these messages were disposed". Disable with
+  `SEARCH_ORPHAN_SWEEP_ENABLED=false`.
+- **Abandonment**: after `SEARCH_FAILURE_MAX_ATTEMPTS` a ledger entry stops
+  being retried and is counted separately in `/api/search/stats`. Without this
+  a message that can never be indexed — one already disposed from MongoDB —
+  would be retried on every cycle forever and `pendingFailures` would grow
+  without bound. A later success clears the flag.
 - **Idempotency**: the Elasticsearch document id is the `messageId`, so
   replays, retries and back-fills overwrite in place.
 - **Structured logging**: indexing logs `messageId`, `eventId`, `index` and
