@@ -218,6 +218,52 @@ services:
       retries: 10
       start_period: 40s
 
+  export-audit-service:
+    build:
+      context: ../export-audit-service
+      dockerfile: Dockerfile
+    image: stown/export-audit-service:latest
+    container_name: stown-export-audit-service
+    ports:
+      - "${EXPORT_PORT:-8084}:8084"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      case-hold-service:
+        condition: service_healthy
+    environment:
+      EXPORT_PORT: "8084"
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb:27017/legal_discovery}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:19092}
+      KAFKA_TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-3}
+      KAFKA_LISTENER_CONCURRENCY: ${KAFKA_LISTENER_CONCURRENCY:-2}
+      CASE_HOLD_BASE_URL: ${CASE_HOLD_BASE_URL:-http://case-hold-service:8083}
+      CASE_HOLD_EVENTS_TOPIC: ${CASE_HOLD_TOPIC:-case-hold.events}
+      S3_SOURCE_BUCKET: ${S3_SOURCE_BUCKET:-discovery-hub-attachments}
+      S3_EXPORT_BUCKET: ${S3_EXPORT_BUCKET:-discovery-hub-exports}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_PATH_STYLE_ACCESS: ${S3_PATH_STYLE_ACCESS:-true}
+      S3_CREATE_BUCKET: ${S3_CREATE_BUCKET:-true}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minioadmin}}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}
+      EXPORT_DOWNLOAD_EXPIRY_SECONDS: ${EXPORT_DOWNLOAD_EXPIRY_SECONDS:-900}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8084/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
 volumes:
   mongo_data:
   minio_data:

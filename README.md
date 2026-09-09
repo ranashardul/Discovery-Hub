@@ -47,6 +47,7 @@ Corpus generator / Angular UI
   `ingestion-service/`   Ingestion API and worker (Java 21, Boot 4)
   `search-service/`      Elasticsearch projection and search API
   `case-hold-service/`   Cases, legal holds, communication references
+  `export-audit-service/` Export & Audit Service (Java 21, Boot 4)
   `corpus-generator/`    Python synthetic-corpus generator
   `infrastructure/`      Docker Compose stack
   `.env.example`         Every configuration variable, with placeholders
@@ -87,6 +88,7 @@ curl http://localhost:8083/actuator/health
   Ingestion Service   `stown-ingestion-service`    `8081`
   Search Service      `stown-search-service`       `8082`
   Case & Hold Service `stown-case-hold-service`    `8083`
+  Export & Audit      `stown-export-audit-service` `8084`
 
 Kafka advertises `localhost:9092` for host clients and `kafka:19092`
 for containers on the compose network. Use container names, never
@@ -191,6 +193,8 @@ chain.
 cd ingestion-service && ./mvnw test
 cd search-service   && ./mvnw test
 cd search-service   && ./mvnw test -Dgroups=integration -Dexcluded.test.groups=
+cd export-audit-service && mvn test
+cd export-audit-service && mvn test -Dgroups=integration -Dexcluded.test.groups=
 ```
 
 Integration tests use Testcontainers and require Docker.
@@ -201,4 +205,5 @@ Integration tests use Testcontainers and require Docker.
 -   `ingestion-service/discovery-hub-project-status.md`
 -   `search-service/README.md`
 -   `Case-hold-service-readme.md`
+-   `export-audit-service/README.md`
 -   `corpus-generator/README.md`
