@@ -34,6 +34,10 @@ public class SearchQueryBuilder {
         term(bool, "recipients.keyword", criteria.recipient());
         term(bool, "threadId", criteria.threadId());
         term(bool, "dispositionStatus", criteria.dispositionStatus());
+        // holdIds is a keyword array, so a term match means "this message is
+        // under that specific hold" - the question a reviewer working a single
+        // legal hold actually asks.
+        term(bool, "holdIds", criteria.holdId());
 
         // holdCount is maintained by the case/hold service; anything above zero
         // means the message is under at least one active legal hold.

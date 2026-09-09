@@ -33,6 +33,7 @@ public class SearchController {
             @RequestParam(name = "recipient", required = false) String recipient,
             @RequestParam(name = "threadId", required = false) String threadId,
             @RequestParam(name = "dispositionStatus", required = false) String dispositionStatus,
+            @RequestParam(name = "holdId", required = false) String holdId,
             @RequestParam(name = "onHold", required = false) Boolean onHold,
             @RequestParam(name = "hasAttachments", required = false) Boolean hasAttachments,
             @RequestParam(name = "after", required = false) String after,
@@ -48,6 +49,7 @@ public class SearchController {
                 .recipient(recipient)
                 .threadId(threadId)
                 .dispositionStatus(dispositionStatus)
+                .holdId(holdId)
                 .onHold(onHold)
                 .hasAttachments(hasAttachments)
                 .after(after)

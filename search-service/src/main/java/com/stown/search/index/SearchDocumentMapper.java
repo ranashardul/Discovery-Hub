@@ -36,6 +36,7 @@ public class SearchDocumentMapper {
                 .attachmentFilenames(filenames)
                 .indexedAt(format(indexedAt))
                 .holdCount(message.getHoldCount())
+                .holdIds(message.getHoldIds() == null ? List.of() : message.getHoldIds())
                 .dispositionStatus(message.getDispositionStatus())
                 .build();
     }

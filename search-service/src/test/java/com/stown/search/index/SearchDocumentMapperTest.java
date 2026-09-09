@@ -35,7 +35,8 @@ class SearchDocumentMapperTest {
                 ))
                 .createdAt(indexedAt)
                 .holdCount(2)
-                .dispositionStatus("RETAINED")
+                .holdIds(List.of("hold-1", "hold-2"))
+                .dispositionStatus("ON_HOLD")
                 .build();
 
         SearchDocument document = mapper.toSearchDocument(message, indexedAt);
@@ -54,7 +55,8 @@ class SearchDocumentMapperTest {
         assertThat(document.getAttachmentCount()).isEqualTo(2);
         assertThat(document.getAttachmentFilenames()).containsExactly("review.pdf", "notes.txt");
         assertThat(document.getHoldCount()).isEqualTo(2);
-        assertThat(document.getDispositionStatus()).isEqualTo("RETAINED");
+        assertThat(document.getHoldIds()).containsExactly("hold-1", "hold-2");
+        assertThat(document.getDispositionStatus()).isEqualTo("ON_HOLD");
     }
 
     @Test
@@ -71,6 +73,7 @@ class SearchDocumentMapperTest {
         assertThat(document.getAttachmentCount()).isZero();
         assertThat(document.getMessageTimestamp()).isNull();
         assertThat(document.getHoldCount()).isZero();
+        assertThat(document.getHoldIds()).isEmpty();
         assertThat(document.getDispositionStatus()).isNull();
     }
 

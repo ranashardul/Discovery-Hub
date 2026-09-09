@@ -43,6 +43,7 @@ public class MessageDocument {
      * into the index so that a reviewer can narrow a result set to material that
      * is under hold without a second round trip.
      */
+    private List<String> holdIds;
     private int holdCount;
     private String dispositionStatus;
 }

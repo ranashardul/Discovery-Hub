@@ -18,6 +18,7 @@ public record SearchRequest(
         String recipient,
         String threadId,
         String dispositionStatus,
+        String holdId,
         Boolean onHold,
         Boolean hasAttachments,
         String after,

@@ -46,7 +46,8 @@ class SearchQueryBuilderTest {
                 .sender("alice@example.com")
                 .recipient("bob@example.com")
                 .threadId("thread-1")
-                .dispositionStatus("RETAINED")));
+                .dispositionStatus("ON_HOLD")
+                .holdId("hold-demo-1")));
 
         List<Query> filters = query.bool().filter();
         assertThat(filters).extracting(filter -> filter.term().field())
@@ -55,10 +56,28 @@ class SearchQueryBuilderTest {
                         "sender.keyword",
                         "recipients.keyword",
                         "threadId",
-                        "dispositionStatus"
+                        "dispositionStatus",
+                        "holdIds"
                 );
         assertThat(filters).extracting(filter -> filter.term().value().stringValue())
-                .containsExactly("EMAIL", "alice@example.com", "bob@example.com", "thread-1", "RETAINED");
+                .containsExactly(
+                        "EMAIL", "alice@example.com", "bob@example.com",
+                        "thread-1", "ON_HOLD", "hold-demo-1"
+                );
+    }
+
+    @Test
+    void filtersByASingleLegalHoldId() {
+        // holdIds is an array in the document, so a term match means
+        // "this message is under that hold" rather than "equals the whole set".
+        Query query = builder.build(criteria(SearchRequest.builder()
+                .q("merger")
+                .holdId("hold-demo-1")));
+
+        List<Query> filters = query.bool().filter();
+        assertThat(filters).hasSize(1);
+        assertThat(filters.getFirst().term().field()).isEqualTo("holdIds");
+        assertThat(filters.getFirst().term().value().stringValue()).isEqualTo("hold-demo-1");
     }
 
     @Test
