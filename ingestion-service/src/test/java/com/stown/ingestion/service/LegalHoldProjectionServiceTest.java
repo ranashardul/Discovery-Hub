@@ -104,9 +104,10 @@ class LegalHoldProjectionServiceTest {
 
         List<Bson> pipeline = capturePipeline();
 
-        // Two stages: mutate the set, then derive from it. Deriving in the
-        // same update is what stops holdCount drifting from holdIds.
-        assertThat(pipeline).hasSize(2);
+        // Three stages: mutate the set, derive from it, then re-arm the
+        // outbox. Deriving in the same update is what stops holdCount
+        // drifting from holdIds.
+        assertThat(pipeline).hasSize(3);
 
         String deriveStage = pipeline.get(1).toString();
         assertThat(deriveStage).contains("holdCount");
@@ -114,6 +115,33 @@ class LegalHoldProjectionServiceTest {
         assertThat(deriveStage).contains("dispositionStatus");
         assertThat(deriveStage).contains("ON_HOLD");
         assertThat(deriveStage).contains("ACTIVE");
+    }
+
+    /**
+     * The projection writes straight to MongoDB, so search-service only hears
+     * about it if a {@code message.ingested} event follows. Without re-arming
+     * the outbox the index reports held messages as {@code holdCount: 0}
+     * forever and {@code ?onHold=true} never matches.
+     */
+    @Test
+    void reArmsTheOutboxWhenPlacingAHoldSoSearchReIndexes() {
+        service.apply(created("hold-2", List.of("msg-1")));
+
+        String republishStage = capturePipeline().getLast().toString();
+
+        assertThat(republishStage).contains("outboxStatus");
+        assertThat(republishStage).contains("PENDING");
+        assertThat(republishStage).contains("outboxPublishedAt");
+    }
+
+    @Test
+    void reArmsTheOutboxWhenReleasingAHoldSoSearchReIndexes() {
+        service.apply(released("hold-1"));
+
+        String republishStage = capturePipeline().getLast().toString();
+
+        assertThat(republishStage).contains("outboxStatus");
+        assertThat(republishStage).contains("PENDING");
     }
 
     @Test

@@ -38,6 +38,19 @@ Other services: **case-hold-service** :8083 (PostgreSQL, publishes
 `holdCount` / `dispositionStatus`) and **export-audit-service** :8084, which
 owns presigned S3 download URLs.
 
+Applying a hold writes those three fields straight to MongoDB, so it also sets
+the message's `outboxStatus` back to `PENDING`. That makes `OutboxPublisher`
+republish `message.ingested`, which is the only way search-service learns a
+message changed. Skip it and the index reports every held message as
+`holdCount: 0` forever, so `?onHold=true` and the `holdId` filter never match.
+Convergence is bounded by `OUTBOX_INTERVAL_MS` (15s default).
+
+A **gateway** on :8080 serves the UI and proxies `/api/*` to all four services.
+It is the single browser origin, which is why no service configures CORS. Its
+route table in `infrastructure/gateway/nginx.conf` must stay in step with
+`discovery-hub-ui/proxy.conf.json`, which provides the same paths for
+`ng serve`; if they diverge, a screen works in development and 404s in Docker.
+
 Ingestion does **not** write to Elasticsearch. The search service owns its own
 projection.
 
@@ -49,8 +62,9 @@ projection.
 | `search-service/` | Elasticsearch projection + search API (port 8082) |
 | `case-hold-service/` | Cases and legal holds, PostgreSQL (port 8083) |
 | `export-audit-service/` | Exports, audit trail, presigned S3 URLs (port 8084) |
+| `discovery-hub-ui/` | Angular 22 front end, served by nginx behind the gateway |
 | `corpus-generator/` | Python synthetic corpus generator |
-| `infrastructure/` | Docker Compose stack |
+| `infrastructure/` | Docker Compose stack, including the nginx gateway |
 | `.env.example` | Configuration template |
 
 There is **no parent/aggregator POM**. The two services are independent Maven
@@ -86,6 +100,7 @@ docker compose ps
 
 | Service | URL |
 |---------|-----|
+| **Web app (start here)** | `http://localhost:8080` |
 | Ingestion API | `http://localhost:8081` |
 | Search API | `http://localhost:8082` |
 | Elasticsearch | `http://localhost:9200` (no auth; `xpack.security.enabled: false`) |
@@ -143,6 +158,21 @@ only back-fills the newest batch:
 ```bash
 curl -X POST "http://localhost:8082/api/search/reindex"
 ```
+
+**Plain reindex will not repair a document that already exists.** It skips on
+`exists(id)`, so a corpus whose *content* drifted (rather than being absent)
+comes back `scanned:N indexed:0 skipped:N`. Rewriting every document needs the
+`force` flag, which is what a mapping change requires:
+
+```bash
+curl -X POST "http://localhost:8082/api/search/reindex?force=true"
+```
+
+Nothing else in search re-indexes a changed document: the reconciliation
+back-fill tests existence only, and the orphan sweep only deletes. Any state
+that reaches a message after ingestion has to arrive as a fresh
+`message.ingested` event — which is why the hold projection re-arms the outbox
+(see below).
 
 **A database that already holds messages will not index itself.** Anything with
 `outboxStatus: PUBLISHED` has no further events coming, and the reconciliation
