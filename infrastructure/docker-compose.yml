@@ -300,6 +300,48 @@ services:
       retries: 10
       start_period: 40s
 
+  discovery-hub-ui:
+    build:
+      context: ../discovery-hub-ui
+      dockerfile: Dockerfile
+    image: stown/discovery-hub-ui:latest
+    container_name: stown-discovery-hub-ui
+    # Deliberately not published on the host: the browser reaches the UI
+    # through the gateway, so there is one origin and no CORS to configure.
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/index.html"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: stown-gateway
+    ports:
+      - "${GATEWAY_PORT:-8080}:80"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      discovery-hub-ui:
+        condition: service_healthy
+      ingestion-service:
+        condition: service_healthy
+      search-service:
+        condition: service_healthy
+      case-hold-service:
+        condition: service_healthy
+      export-audit-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 volumes:
   mongo_data:
   minio_data:
