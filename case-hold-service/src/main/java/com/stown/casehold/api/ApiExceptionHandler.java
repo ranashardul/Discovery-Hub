@@ -3,6 +3,8 @@ package com.stown.casehold.api;
 import com.stown.casehold.service.CaseNotFoundException;
 import com.stown.casehold.service.HoldNotFoundException;
 import com.stown.casehold.service.IllegalHoldStateException;
+import com.stown.casehold.service.SavedSearchNameTakenException;
+import com.stown.casehold.service.SavedSearchNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -11,6 +13,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClientException;
 
 import java.time.Instant;
 import java.util.List;
@@ -55,7 +58,11 @@ public class ApiExceptionHandler {
         );
     }
 
-    @ExceptionHandler({CaseNotFoundException.class, HoldNotFoundException.class})
+    @ExceptionHandler({
+            CaseNotFoundException.class,
+            HoldNotFoundException.class,
+            SavedSearchNotFoundException.class
+    })
     public ResponseEntity<ApiErrorResponse> handleNotFound(
             RuntimeException exception,
             HttpServletRequest request
@@ -63,12 +70,36 @@ public class ApiExceptionHandler {
         return build(HttpStatus.NOT_FOUND, exception.getMessage(), request, List.of());
     }
 
-    @ExceptionHandler(IllegalHoldStateException.class)
+    @ExceptionHandler({
+            IllegalHoldStateException.class,
+            SavedSearchNameTakenException.class
+    })
     public ResponseEntity<ApiErrorResponse> handleIllegalState(
-            IllegalHoldStateException exception,
+            RuntimeException exception,
             HttpServletRequest request
     ) {
         return build(HttpStatus.CONFLICT, exception.getMessage(), request, List.of());
+    }
+
+    /**
+     * The search service is unreachable or failed, so a hold scope preview
+     * cannot be answered. Reported as 503 rather than degraded to zero: a
+     * preview showing "0 messages" reads as "this rule matches nothing" and
+     * would talk a reviewer out of a hold they needed.
+     */
+    @ExceptionHandler(RestClientException.class)
+    public ResponseEntity<ApiErrorResponse> handleSearchUnavailable(
+            RestClientException exception,
+            HttpServletRequest request
+    ) {
+        log.warn("Search service unavailable for a hold scope preview: {}", exception.getMessage());
+
+        return build(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "The search service could not be reached, so the hold scope cannot be counted",
+                request,
+                List.of()
+        );
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

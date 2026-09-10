@@ -68,6 +68,13 @@ public class ReindexService {
         long failed = 0;
 
         try {
+            // The index may have been dropped since the last write — that is
+            // the documented way to apply a mapping change, and this endpoint
+            // is what repopulates it afterwards. Without discarding the cached
+            // "index exists" flag, creation is skipped and the first write
+            // makes Elasticsearch auto-create the index with a dynamic
+            // mapping, quietly breaking every exact-match filter.
+            indexClient.invalidateIndexCache();
             indexClient.ensureIndex();
 
             int pageSize = properties.getReindexBatchSize();

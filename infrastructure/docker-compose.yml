@@ -248,6 +248,10 @@ services:
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb:27017/legal_discovery}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:19092}
       CASE_HOLD_TOPIC: ${CASE_HOLD_TOPIC:-case-hold.events}
+      # Read-only, and only for the hold scope preview. Not a depends_on:
+      # cases and holds must stay usable when search is down, so the preview
+      # degrades to a 503 on that one endpoint instead of blocking startup.
+      SEARCH_BASE_URL: ${SEARCH_BASE_URL:-http://search-service:8082}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8083/actuator/health || exit 1"]

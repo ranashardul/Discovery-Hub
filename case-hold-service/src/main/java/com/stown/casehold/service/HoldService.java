@@ -5,6 +5,7 @@ import com.stown.casehold.api.CreateHoldRequest;
 import com.stown.casehold.api.HoldCommunicationsResponse;
 import com.stown.casehold.api.HoldCriteriaRequest;
 import com.stown.casehold.api.HoldCriteriaResponse;
+import com.stown.casehold.api.HoldScopePreviewResponse;
 import com.stown.casehold.api.HoldResponse;
 import com.stown.casehold.api.ReleaseHoldRequest;
 import com.stown.casehold.domain.CaseEntity;
@@ -44,6 +45,28 @@ public class HoldService {
     private final CaseRepository caseRepository;
     private final MessageLookupService messageLookupService;
     private final EventOutboxWriter outbox;
+    private final SearchClient searchClient;
+
+    /**
+     * Counts what a criteria-based hold would cover, without placing it.
+     *
+     * <p>A hold is a legal instrument and over-scoping one preserves material
+     * a matter has no claim to, so a reviewer needs the size of a rule before
+     * committing to it. Validated with the same rules as a real hold: a
+     * preview that accepts criteria the hold endpoint would reject is a
+     * misleading preview.
+     */
+    @Transactional(readOnly = true)
+    public HoldScopePreviewResponse previewScope(HoldCriteriaRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Supply 'criteria' to preview a hold scope");
+        }
+
+        HoldCriteria criteria = toDomainCriteria(request);
+        validateCriteria(criteria);
+
+        return new HoldScopePreviewResponse(searchClient.countMatching(criteria));
+    }
 
     @Transactional
     public HoldResponse createHold(UUID caseId, CreateHoldRequest request) {

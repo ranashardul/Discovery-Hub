@@ -35,6 +35,19 @@ public class HoldController {
         return ResponseEntity.ok(holdService.listHoldsForCase(caseId));
     }
 
+    /**
+     * Counts what a criteria-based hold would cover, without placing it.
+     *
+     * <p>Not scoped to a case: the question is about the archive, and a
+     * reviewer asks it while deciding which case to attach the hold to.
+     */
+    @PostMapping("/holds/preview")
+    public ResponseEntity<HoldScopePreviewResponse> previewScope(
+            @Valid @RequestBody HoldCriteriaRequest request
+    ) {
+        return ResponseEntity.ok(holdService.previewScope(request));
+    }
+
     @GetMapping("/holds/{holdId}")
     public ResponseEntity<HoldResponse> getHold(@PathVariable UUID holdId) {
         return ResponseEntity.ok(holdService.getHold(holdId));

@@ -33,6 +33,7 @@ public class SearchController {
             @RequestParam(name = "communicationType", required = false) String communicationType,
             @RequestParam(name = "sender", required = false) String sender,
             @RequestParam(name = "recipient", required = false) String recipient,
+            @RequestParam(name = "participant", required = false) List<String> participants,
             @RequestParam(name = "threadId", required = false) String threadId,
             @RequestParam(name = "dispositionStatus", required = false) String dispositionStatus,
             @RequestParam(name = "holdId", required = false) String holdId,
@@ -49,6 +50,7 @@ public class SearchController {
                 .communicationType(communicationType)
                 .sender(sender)
                 .recipient(recipient)
+                .participants(participants)
                 .threadId(threadId)
                 .dispositionStatus(dispositionStatus)
                 .holdId(holdId)
@@ -80,6 +82,7 @@ public class SearchController {
             @RequestParam(name = "communicationType", required = false) String communicationType,
             @RequestParam(name = "sender", required = false) String sender,
             @RequestParam(name = "recipient", required = false) String recipient,
+            @RequestParam(name = "participant", required = false) List<String> participants,
             @RequestParam(name = "threadId", required = false) String threadId,
             @RequestParam(name = "dispositionStatus", required = false) String dispositionStatus,
             @RequestParam(name = "holdId", required = false) String holdId,
@@ -93,6 +96,7 @@ public class SearchController {
                 .communicationType(communicationType)
                 .sender(sender)
                 .recipient(recipient)
+                .participants(participants)
                 .threadId(threadId)
                 .dispositionStatus(dispositionStatus)
                 .holdId(holdId)

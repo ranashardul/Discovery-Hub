@@ -39,17 +39,58 @@ public class MessageIndexClient {
     /**
      * Stable tiebreaker for {@code search_after}. Must be a doc-values field:
      * fielddata on {@code _id} is disallowed, and the analysed {@code sender}
-     * style fields would sort by token.
+     * style fields would sort by token. {@code messageId} is mapped as
+     * {@code keyword} below.
      */
-    private static final String ID_SORT_FIELD = "messageId.keyword";
+    private static final String ID_SORT_FIELD = "messageId";
 
     private final ElasticsearchClient elasticsearchClient;
     private final SearchProperties properties;
 
     private volatile boolean indexReady;
 
+    /**
+     * When the index was last confirmed to exist. The "index exists" answer is
+     * cached to keep a HEAD request off every search and write, but it is
+     * re-checked on this interval so an index dropped underneath the service
+     * is noticed and rebuilt from the explicit mapping — rather than being
+     * auto-created by Elasticsearch with a dynamic one on the next write,
+     * which silently breaks every exact-match filter.
+     */
+    private volatile long lastVerifiedAt;
+
+    private static final long REVALIDATE_AFTER_MS = 30_000L;
+
     public String indexName() {
         return properties.getIndex();
+    }
+
+    /**
+     * Forgets that the index was confirmed present, so the next
+     * {@link #ensureIndex()} re-checks and recreates it from the explicit
+     * mapping below.
+     *
+     * <p>Needed because {@code indexReady} is a cache, and an index can
+     * disappear underneath a running service. Dropping and rebuilding the
+     * index is the documented way to apply a mapping change, so this is a
+     * routine operation, not an edge case:
+     *
+     * <pre>
+     * curl -X DELETE localhost:9200/messages
+     * curl -X POST   localhost:8082/api/search/reindex?force=true
+     * </pre>
+     *
+     * <p>Without this the reindex found {@code indexReady} still true, skipped
+     * creation, and wrote into a missing index — so Elasticsearch auto-created
+     * it with a <em>dynamic</em> mapping. Every {@code keyword} field below
+     * became analysed {@code text}, which silently returns zero hits for
+     * exact-match filters on {@code communicationType}, {@code threadId},
+     * {@code holdIds} and {@code dispositionStatus}, and makes the
+     * {@code messageId} sort fail outright. The procedure meant to repair the
+     * mapping was the thing corrupting it.
+     */
+    public synchronized void invalidateIndexCache() {
+        indexReady = false;
     }
 
     /**
@@ -57,7 +98,7 @@ public class MessageIndexClient {
      * call repeatedly and from multiple threads.
      */
     public synchronized void ensureIndex() throws IOException {
-        if (indexReady) {
+        if (indexReady && !revalidationDue()) {
             return;
         }
 
@@ -67,8 +108,20 @@ public class MessageIndexClient {
                 .value();
 
         if (exists) {
-            indexReady = true;
+            markReady();
             return;
+        }
+
+        if (indexReady) {
+            // Confirmed present earlier and gone now: something dropped it
+            // while the service was running. Say so, because the rebuilt
+            // index starts empty and searches will legitimately return
+            // nothing until a reindex repopulates it.
+            log.warn(
+                    "Index index={} has disappeared and is being recreated from the"
+                            + " explicit mapping; it will be empty until a reindex runs",
+                    index
+            );
         }
 
         try {
@@ -107,7 +160,16 @@ public class MessageIndexClient {
             }
         }
 
+        markReady();
+    }
+
+    private void markReady() {
         indexReady = true;
+        lastVerifiedAt = System.currentTimeMillis();
+    }
+
+    private boolean revalidationDue() {
+        return System.currentTimeMillis() - lastVerifiedAt > REVALIDATE_AFTER_MS;
     }
 
     public void index(SearchDocument document) throws IOException {

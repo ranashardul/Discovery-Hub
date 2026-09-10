@@ -168,6 +168,19 @@ comes back `scanned:N indexed:0 skipped:N`. Rewriting every document needs the
 curl -X POST "http://localhost:8082/api/search/reindex?force=true"
 ```
 
+**Always confirm the mapping after a rebuild.** `MessageIndexClient` caches
+"the index exists", and until that cache was invalidated on reindex, the delete
+above left the flag set: creation was skipped and the first write made
+Elasticsearch auto-create the index with a *dynamic* mapping. Every `keyword`
+field became analysed `text`, so exact-match filters on `communicationType`,
+`threadId`, `holdIds` and `dispositionStatus` silently returned nothing and the
+`messageId` sort failed with `all shards failed`. `messageId` must read
+`keyword`, not `text`:
+
+```bash
+curl -s localhost:9200/messages/_mapping | grep -o '"messageId":{"type":"[a-z]*"'
+```
+
 Nothing else in search re-indexes a changed document: the reconciliation
 back-fill tests existence only, and the orphan sweep only deletes. Any state
 that reaches a message after ingestion has to arrive as a fresh
