@@ -92,6 +92,19 @@ public class PackageVerifier {
         return new ItemVerification(item, recomputed, matches);
     }
 
+    /**
+     * Reads the manifest out of a package without verifying it.
+     *
+     * <p>The manifest is only ever written inside the ZIP, deliberately: an
+     * evidence package that carried its own inventory in a separate database
+     * row could be verified against a record that had itself been altered.
+     * Reading it back therefore means fetching the package, which is why this
+     * is a distinct call from {@link #verify} rather than a field on the job.
+     */
+    public ExportManifest readManifest(byte[] packageBytes) throws IOException {
+        return readManifest(readEntries(packageBytes));
+    }
+
     private Map<String, byte[]> readEntries(byte[] packageBytes) throws IOException {
         Map<String, byte[]> entries = new HashMap<>();
 

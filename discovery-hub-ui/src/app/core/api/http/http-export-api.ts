@@ -2,12 +2,12 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, forkJoin, map, of, switchMap } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import { MockExportApi } from '../../mock/mock-apis';
 import {
   CreateExportRequest,
   ExportJob,
   ExportManifest,
   VerificationReport,
+  toExportScope,
 } from '../../models/export';
 import { CaseApi } from '../case-api';
 import { ExportApi } from '../export-api';
@@ -43,6 +43,29 @@ interface WireVerify {
   items: { itemId?: string; path?: string; matches?: boolean }[] | null;
 }
 
+/** Wire shape of GET /api/exports/{id}/manifest. */
+interface WireManifestItem {
+  type: string;
+  path: string;
+  messageId: string;
+  attachmentId: string | null;
+  filename: string | null;
+  sizeBytes: number | null;
+  sha256: string | null;
+}
+
+interface WireManifest {
+  exportId: string;
+  caseId: string;
+  scope: string;
+  requestedBy: string;
+  createdAt: string;
+  packageSha256: string | null;
+  messageCount: number;
+  attachmentCount: number;
+  items: WireManifestItem[] | null;
+}
+
 interface WireDownloadUrl {
   exportId: string;
   downloadUrl: string;
@@ -56,8 +79,6 @@ const ACTOR = 'discovery-hub-ui';
 export class HttpExportApi extends ExportApi {
   private readonly http = inject(HttpClient);
   private readonly cases = inject(CaseApi);
-  /** No manifest endpoint; see environment.mockBacked. */
-  private readonly fallback = inject(MockExportApi);
 
   private readonly base = `${environment.api.exportAudit}/exports`;
 
@@ -113,9 +134,39 @@ export class HttpExportApi extends ExportApi {
       .pipe(map((job) => this.toJob(job)), catchError(toApiError));
   }
 
-  /** No manifest endpoint exists; verify returns per-item results instead. */
+  /**
+   * The package inventory, read out of the ZIP by the service.
+   *
+   * Costs an S3 fetch, so it is asked for only when a reviewer opens the
+   * manifest rather than being folded into the job listing.
+   */
   getManifest(id: string): Observable<ExportManifest> {
-    return this.fallback.getManifest(id);
+    return this.http
+      .get<WireManifest>(`${this.base}/${encodeURIComponent(id)}/manifest`)
+      .pipe(
+        map((manifest): ExportManifest => {
+          const entries = manifest.items ?? [];
+          return {
+            jobId: manifest.exportId,
+            caseId: manifest.caseId,
+            generatedAt: manifest.createdAt,
+            itemCount: entries.length,
+            totalSizeBytes: entries.reduce((total, item) => total + (item.sizeBytes ?? 0), 0),
+            // Null until the package checksum is written into the manifest;
+            // the job record carries it either way.
+            packageChecksum: manifest.packageSha256 ?? '',
+            algorithm: 'SHA-256',
+            entries: entries.map((item) => ({
+              itemId: item.attachmentId ?? item.messageId,
+              path: item.path,
+              itemType: item.type === 'ATTACHMENT' ? 'ATTACHMENT' : 'MESSAGE',
+              sizeBytes: item.sizeBytes ?? 0,
+              sha256: item.sha256 ?? '',
+            })),
+          };
+        }),
+        catchError(toApiError),
+      );
   }
 
   verifyPackage(id: string): Observable<VerificationReport> {
@@ -172,7 +223,7 @@ export class HttpExportApi extends ExportApi {
       id: job.exportId,
       caseId: job.caseId,
       caseName: caseName ?? '',
-      scopeType: (job.scope as ExportJob['scopeType']) ?? 'CASE_EVIDENCE',
+      scopeType: toExportScope(job.scope),
       holdId: job.holdId,
       status: job.status as ExportJob['status'],
       requestedAt: job.createdAt,

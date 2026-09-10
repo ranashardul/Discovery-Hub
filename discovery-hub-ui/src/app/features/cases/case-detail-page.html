@@ -26,7 +26,7 @@
           <button
             type="button"
             class="btn"
-            [class.btn--primary]="next === 'ACTIVE'"
+            [class.btn--primary]="next === 'OPEN'"
             [class.btn--danger]="next === 'CLOSED'"
             [disabled]="busy()"
             (click)="changeStatus(next)"
@@ -52,10 +52,10 @@
       </div>
     }
 
-    @if (item.status === 'DRAFT') {
+    @if (item.status === 'ARCHIVED') {
       <div class="banner banner--info" style="margin-bottom: 1rem">
-        Draft case. Attach custodians, then move it to <strong>Active</strong> to place holds and
-        export evidence.
+        This case is <strong>archived</strong>. New holds are refused on an archived case; reopen it
+        to preserve further material.
       </div>
     }
 
@@ -323,22 +323,9 @@
                       </td>
                       <td>
                         <app-status-chip [status]="hold.status" />
-                        @if (hold.status === 'PROPAGATING') {
-                          <div class="progress" style="margin-top: 0.4rem; width: 7rem">
-                            <div
-                              class="progress__bar"
-                              [style.width.%]="
-                                hold.estimatedScopeCount
-                                  ? (hold.matchedMessageCount / hold.estimatedScopeCount) * 100
-                                  : 0
-                              "
-                            ></div>
-                          </div>
-                        }
                       </td>
                       <td class="num">
                         {{ hold.matchedMessageCount | number }}
-                        <div class="small muted">of {{ hold.estimatedScopeCount | number }}</div>
                       </td>
                       <td class="row-actions">
                         <button
@@ -352,7 +339,7 @@
                         <button
                           type="button"
                           class="btn btn--sm"
-                          [disabled]="hold.status === 'RELEASED' || hold.status === 'RELEASING'"
+                          [disabled]="hold.status === 'RELEASED'"
                           (click)="releaseHold(hold.id)"
                         >
                           Release

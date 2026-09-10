@@ -1,9 +1,12 @@
 package com.stown.casehold.api;
 
 import com.stown.casehold.service.CaseService;
+import com.stown.casehold.service.SavedSearchService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,6 +25,7 @@ import java.util.UUID;
 public class CaseController {
 
     private final CaseService caseService;
+    private final SavedSearchService savedSearchService;
 
     @PostMapping
     public ResponseEntity<CaseResponse> createCase(@Valid @RequestBody CreateCaseRequest request) {
@@ -54,6 +58,30 @@ public class CaseController {
             @Valid @RequestBody AddCaseCommunicationsRequest request
     ) {
         return ResponseEntity.ok(caseService.addCommunications(caseId, request));
+    }
+
+    /** Named searches scoped to this case. */
+    @GetMapping("/{caseId}/saved-searches")
+    public ResponseEntity<List<SavedSearchResponse>> listSavedSearches(@PathVariable UUID caseId) {
+        return ResponseEntity.ok(savedSearchService.list(caseId));
+    }
+
+    @PostMapping("/{caseId}/saved-searches")
+    public ResponseEntity<SavedSearchResponse> saveSearch(
+            @PathVariable UUID caseId,
+            @Valid @RequestBody CreateSavedSearchRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(savedSearchService.save(caseId, request));
+    }
+
+    @DeleteMapping("/{caseId}/saved-searches/{savedSearchId}")
+    public ResponseEntity<Void> deleteSavedSearch(
+            @PathVariable UUID caseId,
+            @PathVariable UUID savedSearchId
+    ) {
+        savedSearchService.delete(savedSearchId);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{caseId}/communications")

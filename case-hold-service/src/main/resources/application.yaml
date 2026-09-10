@@ -67,6 +67,14 @@ management:
       show-details: when-authorized
 
 app:
+  # Read-only, and only for the hold scope preview: counting what a rule
+  # would cover is delegated to the search index rather than reimplemented
+  # here, so the preview cannot disagree with the hold that follows it.
+  search:
+    base-url: ${SEARCH_BASE_URL:http://localhost:8082}
+    connect-timeout-ms: ${SEARCH_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${SEARCH_READ_TIMEOUT_MS:5000}
+
   case-hold:
     topic: ${CASE_HOLD_TOPIC:case-hold.events}
     max-page-size: ${CASE_HOLD_MAX_PAGE_SIZE:100}

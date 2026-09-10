@@ -38,6 +38,19 @@ Other services: **case-hold-service** :8083 (PostgreSQL, publishes
 `holdCount` / `dispositionStatus`) and **export-audit-service** :8084, which
 owns presigned S3 download URLs.
 
+Applying a hold writes those three fields straight to MongoDB, so it also sets
+the message's `outboxStatus` back to `PENDING`. That makes `OutboxPublisher`
+republish `message.ingested`, which is the only way search-service learns a
+message changed. Skip it and the index reports every held message as
+`holdCount: 0` forever, so `?onHold=true` and the `holdId` filter never match.
+Convergence is bounded by `OUTBOX_INTERVAL_MS` (15s default).
+
+A **gateway** on :8080 serves the UI and proxies `/api/*` to all four services.
+It is the single browser origin, which is why no service configures CORS. Its
+route table in `infrastructure/gateway/nginx.conf` must stay in step with
+`discovery-hub-ui/proxy.conf.json`, which provides the same paths for
+`ng serve`; if they diverge, a screen works in development and 404s in Docker.
+
 Ingestion does **not** write to Elasticsearch. The search service owns its own
 projection.
 
@@ -49,8 +62,9 @@ projection.
 | `search-service/` | Elasticsearch projection + search API (port 8082) |
 | `case-hold-service/` | Cases and legal holds, PostgreSQL (port 8083) |
 | `export-audit-service/` | Exports, audit trail, presigned S3 URLs (port 8084) |
+| `discovery-hub-ui/` | Angular 22 front end, served by nginx behind the gateway |
 | `corpus-generator/` | Python synthetic corpus generator |
-| `infrastructure/` | Docker Compose stack |
+| `infrastructure/` | Docker Compose stack, including the nginx gateway |
 | `.env.example` | Configuration template |
 
 There is **no parent/aggregator POM**. The two services are independent Maven
@@ -63,9 +77,15 @@ Both services have a Maven wrapper. There may be no `mvn` on the PATH, so
 always prefer `./mvnw`.
 
 ```bash
-cd search-service    && ./mvnw test        # 33 unit tests, no containers
+cd search-service    && ./mvnw test
 cd ingestion-service && ./mvnw test
+cd case-hold-service && ./mvnw test
+cd export-audit-service && mvn test        # no wrapper in this module
+cd discovery-hub-ui  && npm test && npm run build
 ```
+
+**`export-audit-service` has no Maven wrapper.** Every other module does. Use
+`mvn` there, or run it from another module's wrapper.
 
 Integration tests are tagged `integration` and excluded from the default
 surefire run. Clearing `excluded.test.groups` is required, and Docker must be
@@ -86,6 +106,7 @@ docker compose ps
 
 | Service | URL |
 |---------|-----|
+| **Web app (start here)** | `http://localhost:8080` |
 | Ingestion API | `http://localhost:8081` |
 | Search API | `http://localhost:8082` |
 | Elasticsearch | `http://localhost:9200` (no auth; `xpack.security.enabled: false`) |
@@ -143,6 +164,34 @@ only back-fills the newest batch:
 ```bash
 curl -X POST "http://localhost:8082/api/search/reindex"
 ```
+
+**Plain reindex will not repair a document that already exists.** It skips on
+`exists(id)`, so a corpus whose *content* drifted (rather than being absent)
+comes back `scanned:N indexed:0 skipped:N`. Rewriting every document needs the
+`force` flag, which is what a mapping change requires:
+
+```bash
+curl -X POST "http://localhost:8082/api/search/reindex?force=true"
+```
+
+**Always confirm the mapping after a rebuild.** `MessageIndexClient` caches
+"the index exists", and until that cache was invalidated on reindex, the delete
+above left the flag set: creation was skipped and the first write made
+Elasticsearch auto-create the index with a *dynamic* mapping. Every `keyword`
+field became analysed `text`, so exact-match filters on `communicationType`,
+`threadId`, `holdIds` and `dispositionStatus` silently returned nothing and the
+`messageId` sort failed with `all shards failed`. `messageId` must read
+`keyword`, not `text`:
+
+```bash
+curl -s localhost:9200/messages/_mapping | grep -o '"messageId":{"type":"[a-z]*"'
+```
+
+Nothing else in search re-indexes a changed document: the reconciliation
+back-fill tests existence only, and the orphan sweep only deletes. Any state
+that reaches a message after ingestion has to arrive as a fresh
+`message.ingested` event — which is why the hold projection re-arms the outbox
+(see below).
 
 **A database that already holds messages will not index itself.** Anything with
 `outboxStatus: PUBLISHED` has no further events coming, and the reconciliation
@@ -204,10 +253,38 @@ reverting the commit is not sufficient.
   `POST /api/search/reindex` is unauthenticated and expensive, so it should not
   be exposed publicly as-is.
 - **Contracts are duplicated, not shared.** `MessageDocument`,
-  `AttachmentMetadata` and `MessageIngestedEvent` exist as independent copies
-  in both services. A field renamed in `ingestion-service` produces **no
-  compile error** in `search-service` — it silently reads `null`. Diff these
-  classes by hand whenever the ingestion model changes.
+  `AttachmentMetadata`, `MessageIngestedEvent`, `MessageDisposedEvent` and
+  `AuditEvent` exist as independent copies per service, bound by field name
+  over Kafka and MongoDB. A field renamed in `ingestion-service` produces **no
+  compile error** anywhere else — the other side silently reads `null` and the
+  failure surfaces later as missing data. Run
+  `infrastructure/check-contract-drift.sh` whenever the model changes; it
+  compares every copy against the ingestion one.
+- **Two UI capabilities have no backend, and it is a modelling gap rather than
+  a missing controller.** `environment.mockBacked` lists them: attaching a
+  custodian to a case, and removing a single evidence item. The case service
+  models *communications* on a case, never people, so there is nowhere to store
+  a case-to-custodian relation. Both need a domain decision first.
+- **Multiple hold participants are OR'd by the search filter**, matching what
+  `LegalHoldProjectionService.criteriaFilter` does in ingestion. If one changes,
+  the hold scope preview stops agreeing with the hold it previewed.
+
+## Verification scripts
+
+```bash
+cd infrastructure
+
+# End-to-end across all five services, through the gateway: ingest -> search
+# -> case -> hold -> blocked delete -> export -> verify -> audit. 41 checks.
+./smoke-test.sh
+
+# Field-level drift between the contracts each service copies. Exits 1 on an
+# unexpected difference; deliberate omissions are listed with a reason in
+# EXPECTED_ABSENT inside the script.
+./check-contract-drift.sh
+```
+
+Run both before opening a PR. There is no CI, so nothing else will.
 
 ## Useful checks
 

@@ -68,6 +68,11 @@ app:
     disposed-consumer-group: ${SEARCH_DISPOSED_CONSUMER_GROUP:search-service-disposed}
     failure-max-attempts: ${SEARCH_FAILURE_MAX_ATTEMPTS:10}
     reindex-batch-size: ${SEARCH_REINDEX_BATCH_SIZE:500}
+    # Caps GET /api/search/ids. Scoping a case to a result set is the use
+    # case; walking the whole archive into memory is not.
+    max-resolved-ids: ${SEARCH_MAX_RESOLVED_IDS:10000}
+    resolve-ids-page-size: ${SEARCH_RESOLVE_IDS_PAGE_SIZE:1000}
+    max-custodians: ${SEARCH_MAX_CUSTODIANS:500}
     retry-attempts: ${SEARCH_RETRY_ATTEMPTS:3}
     retry-initial-interval-ms: ${SEARCH_RETRY_INITIAL_INTERVAL_MS:1000}
     retry-multiplier: ${SEARCH_RETRY_MULTIPLIER:2.0}

@@ -2,6 +2,8 @@ package com.stown.search.api;
 
 import lombok.Builder;
 
+import java.util.List;
+
 /**
  * Raw, unvalidated query-string parameters for {@code GET /api/search}.
  *
@@ -16,6 +18,7 @@ public record SearchRequest(
         String communicationType,
         String sender,
         String recipient,
+        List<String> participants,
         String threadId,
         String dispositionStatus,
         String holdId,

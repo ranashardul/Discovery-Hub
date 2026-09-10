@@ -3,6 +3,8 @@ package com.stown.search.service;
 import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.search.Hit;
+import com.stown.search.api.CustodianResponse;
+import com.stown.search.api.ResolvedIdsResponse;
 import com.stown.search.api.SearchResponse;
 import com.stown.search.api.SearchResultItem;
 import com.stown.search.api.SearchStatsResponse;
@@ -74,6 +76,58 @@ public class SearchService {
         } catch (IOException exception) {
             log.error("Search failed query=\"{}\" reason={}", criteria.query(), exception.getMessage());
             throw new SearchExecutionException("Search request failed", exception);
+        }
+    }
+
+    /**
+     * Resolves criteria to every matching message id.
+     *
+     * <p>Exists so "add all N results to a case" is one call instead of the
+     * client paging the archive: at the default page size, scoping a case to
+     * four thousand matches was forty sequential round trips, and any change
+     * to the corpus midway through produced an evidence set that matched no
+     * single query.
+     */
+    public ResolvedIdsResponse resolveIds(SearchCriteria criteria) {
+        Query query = queryBuilder.build(criteria);
+        int cap = properties.getMaxResolvedIds();
+
+        try {
+            List<String> ids = indexClient.searchIds(
+                    query,
+                    cap,
+                    properties.getResolveIdsPageSize()
+            );
+
+            boolean truncated = ids.size() >= cap;
+
+            log.info(
+                    "Resolved ids query=\"{}\" returned={} truncated={}",
+                    criteria.query(),
+                    ids.size(),
+                    truncated
+            );
+
+            return new ResolvedIdsResponse(ids.size(), truncated, ids);
+        } catch (IOException exception) {
+            log.error(
+                    "Id resolution failed query=\"{}\" reason={}",
+                    criteria.query(),
+                    exception.getMessage()
+            );
+            throw new SearchExecutionException("Id resolution failed", exception);
+        }
+    }
+
+    /** Distinct senders in the index, most prolific first. */
+    public List<CustodianResponse> custodians() {
+        try {
+            return indexClient.aggregateSenders(properties.getMaxCustodians()).stream()
+                    .map(entry -> new CustodianResponse(entry.getKey(), entry.getValue()))
+                    .toList();
+        } catch (IOException exception) {
+            log.error("Custodian aggregation failed reason={}", exception.getMessage());
+            throw new SearchExecutionException("Custodian aggregation failed", exception);
         }
     }
 

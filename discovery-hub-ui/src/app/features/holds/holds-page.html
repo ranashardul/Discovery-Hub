@@ -16,13 +16,7 @@
     <div class="metric">
       <p class="metric__label">Active holds</p>
       <p class="metric__value">{{ totals().active }}</p>
-      <p class="metric__hint">
-        @if (totals().propagating > 0) {
-          {{ totals().propagating }} still propagating
-        } @else {
-          All propagated
-        }
-      </p>
+      <p class="metric__hint">Not yet released</p>
     </div>
     <div class="metric">
       <p class="metric__label">Messages preserved</p>
@@ -136,22 +130,9 @@
                   </td>
                   <td>
                     <app-status-chip [status]="hold.status" />
-                    @if (hold.status === 'PROPAGATING') {
-                      <div class="progress" style="margin-top: 0.4rem; width: 7rem">
-                        <div
-                          class="progress__bar"
-                          [style.width.%]="
-                            hold.estimatedScopeCount
-                              ? (hold.matchedMessageCount / hold.estimatedScopeCount) * 100
-                              : 0
-                          "
-                        ></div>
-                      </div>
-                    }
                   </td>
                   <td class="num">
                     {{ hold.matchedMessageCount | number }}
-                    <div class="small muted">of {{ hold.estimatedScopeCount | number }}</div>
                   </td>
                   <td class="row-actions">
                     <a
@@ -164,7 +145,7 @@
                     <button
                       type="button"
                       class="btn btn--sm"
-                      [disabled]="hold.status === 'RELEASED' || hold.status === 'RELEASING'"
+                      [disabled]="hold.status === 'RELEASED'"
                       (click)="release(hold.id)"
                     >
                       Release

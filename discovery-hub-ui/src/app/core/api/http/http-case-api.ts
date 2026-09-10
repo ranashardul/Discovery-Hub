@@ -9,6 +9,7 @@ import {
   CreateCaseRequest,
   EvidenceItem,
   LegalCase,
+  toCaseStatus,
 } from '../../models/case';
 import { Custodian } from '../../models/message';
 import { AddEvidenceRequest, CaseApi, CaseListQuery } from '../case-api';
@@ -39,6 +40,12 @@ interface WireCommunicationItem {
   } | null;
 }
 
+/** Wire shape of GET /api/search/custodians. */
+interface WireCustodian {
+  name: string;
+  messageCount: number;
+}
+
 interface WireCommunications {
   caseId: string;
   total: number;
@@ -56,7 +63,7 @@ const ACTOR = 'discovery-hub-ui';
 @Injectable()
 export class HttpCaseApi extends CaseApi {
   private readonly http = inject(HttpClient);
-  /** Custodians have no backend; see environment.mockBacked. */
+  /** Case custodians and evidence removal have no backend; see environment.mockBacked. */
   private readonly fallback = inject(MockCaseApi);
 
   private readonly base = `${environment.api.caseHold}/cases`;
@@ -162,8 +169,31 @@ export class HttpCaseApi extends CaseApi {
     return this.fallback.removeCustodian(caseId, custodianId);
   }
 
+  /**
+   * The custodian directory is derived from the archive, because no service
+   * models custodians as entities: the only truthful answer to "who is in
+   * here" is the set of identities that actually sent something.
+   *
+   * Only the name and message count are real. Display name, email, department
+   * and title have no source, so the identity stands in for the name and the
+   * rest are left empty rather than invented.
+   */
   listAllCustodians(): Observable<Custodian[]> {
-    return this.fallback.listAllCustodians();
+    return this.http
+      .get<WireCustodian[]>(`${environment.api.search}/custodians`)
+      .pipe(
+        map((custodians) =>
+          custodians.map((custodian) => ({
+            id: custodian.name,
+            displayName: custodian.name,
+            email: custodian.name,
+            department: '',
+            title: '',
+            messageCount: custodian.messageCount,
+          })),
+        ),
+        catchError(toApiError),
+      );
   }
 
   /**
@@ -182,7 +212,7 @@ export class HttpCaseApi extends CaseApi {
       description: matterMatch ? description.slice(matterMatch[0].length) : description,
       matterType: (matterMatch?.[1] as LegalCase['matterType']) ?? 'INVESTIGATION',
       owner: item.createdBy,
-      status: item.status as CaseStatus,
+      status: toCaseStatus(item.status),
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       closedAt: item.status === 'CLOSED' ? item.updatedAt : null,

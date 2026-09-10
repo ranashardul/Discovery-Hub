@@ -1,6 +1,7 @@
 package com.stown.exportaudit.api;
 
 import com.stown.exportaudit.domain.ExportJobDocument;
+import com.stown.exportaudit.domain.ExportManifest;
 import com.stown.exportaudit.domain.ExportScope;
 import com.stown.exportaudit.service.ExportJobNotFoundException;
 import com.stown.exportaudit.service.ExportJobService;
@@ -106,6 +107,20 @@ public class ExportController {
      * recomputing the package-level checksum. Any tampering is reported per
      * item.
      */
+    /**
+     * The manifest of a completed package: every item with its checksum.
+     *
+     * <p>Separate from verify because they answer different questions. This
+     * says what the package contains; verify recomputes every checksum and
+     * says whether it still matches.
+     */
+    @GetMapping("/{exportId}/manifest")
+    public ResponseEntity<ExportManifest> getManifest(
+            @PathVariable String exportId
+    ) {
+        return ResponseEntity.ok(exportJobService.manifest(exportId));
+    }
+
     @PostMapping("/{exportId}/verify")
     public ResponseEntity<VerifyResponse> verifyExport(
             @PathVariable String exportId

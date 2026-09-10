@@ -12,6 +12,8 @@ public record DispositionRunResponse(
         String runId,
         Instant startedAt,
         Instant finishedAt,
+        /** {@code SCHEDULED} or {@code MANUAL}. */
+        String trigger,
         int scanned,
         int deleted,
         int skippedOnHold,
@@ -28,6 +30,9 @@ public record DispositionRunResponse(
                 run.getRunId(),
                 run.getStartedAt(),
                 run.getFinishedAt(),
+                // Runs recorded before the trigger was tracked are scheduler runs:
+                // a manual trigger did not exist when they were written.
+                run.getTrigger() == null ? "SCHEDULED" : run.getTrigger(),
                 run.getScanned(),
                 run.getDeleted(),
                 run.getSkippedOnHold(),

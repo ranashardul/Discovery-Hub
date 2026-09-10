@@ -3,6 +3,8 @@ package com.stown.search.service;
 import com.stown.search.api.SearchRequest;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Objects;
 import java.time.format.DateTimeParseException;
 
 public record SearchCriteria(
@@ -10,6 +12,7 @@ public record SearchCriteria(
         String communicationType,
         String sender,
         String recipient,
+        List<String> participants,
         String threadId,
         String dispositionStatus,
         String holdId,
@@ -67,6 +70,7 @@ public record SearchCriteria(
                 trimToNull(request.communicationType()),
                 trimToNull(request.sender()),
                 trimToNull(request.recipient()),
+                normaliseList(request.participants()),
                 trimToNull(request.threadId()),
                 trimToNull(request.dispositionStatus()),
                 trimToNull(request.holdId()),
@@ -100,6 +104,7 @@ public record SearchCriteria(
         return trimToNull(request.communicationType()) != null
                 || trimToNull(request.sender()) != null
                 || trimToNull(request.recipient()) != null
+                || !normaliseList(request.participants()).isEmpty()
                 || trimToNull(request.threadId()) != null
                 || trimToNull(request.dispositionStatus()) != null
                 || trimToNull(request.holdId()) != null
@@ -123,6 +128,18 @@ public record SearchCriteria(
                     "Parameter '" + field + "' must be an ISO-8601 instant, for example 2026-09-08T03:00:00Z"
             );
         }
+    }
+
+    /** Drops null and blank entries, and de-duplicates, preserving order. */
+    private static List<String> normaliseList(List<String> values) {
+        if (values == null) {
+            return List.of();
+        }
+        return values.stream()
+                .map(SearchCriteria::trimToNull)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
     }
 
     private static String trimToNull(String value) {

@@ -2,6 +2,7 @@ package com.stown.exportaudit.service;
 
 import com.stown.exportaudit.domain.AuditEventDocument;
 import com.stown.exportaudit.messaging.AuditEvent;
+import com.stown.exportaudit.repository.AuditEventQueryRepository;
 import com.stown.exportaudit.repository.AuditEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -25,6 +27,7 @@ import java.util.UUID;
 public class AuditService {
 
     private final AuditEventRepository auditEventRepository;
+    private final AuditEventQueryRepository queryRepository;
 
     /**
      * Records an audit event synchronously. Used internally by the export
@@ -142,5 +145,40 @@ public class AuditService {
     /** Returns the audit history for a specific target entity, newest first. */
     public List<AuditEventDocument> findByTargetId(String targetId) {
         return auditEventRepository.findByTargetIdOrderByTimestampDesc(targetId);
+    }
+
+    /** A filtered, paged view of the trail, newest first. */
+    public AuditPage query(AuditEventQueryRepository.AuditFilter filter, int page, int size) {
+        return new AuditPage(
+                queryRepository.find(filter, page, size),
+                queryRepository.count(filter),
+                page,
+                size
+        );
+    }
+
+    /** One entry by its event id. */
+    public Optional<AuditEventDocument> findByEventId(String eventId) {
+        return auditEventRepository.findByEventId(eventId);
+    }
+
+    /**
+     * Distinct actors, sorted, for a filter dropdown. Nulls are dropped:
+     * events published without an actor are recorded, but there is nothing to
+     * offer as a choice.
+     */
+    public List<String> distinctActors() {
+        return queryRepository.distinctActors().stream()
+                .filter(actor -> actor != null && !actor.isBlank())
+                .sorted()
+                .toList();
+    }
+
+    public record AuditPage(
+            List<AuditEventDocument> entries,
+            long total,
+            int page,
+            int size
+    ) {
     }
 }

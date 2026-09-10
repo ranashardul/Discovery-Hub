@@ -25,35 +25,50 @@ import { SearchApi } from './search-api';
  * Binds the API contracts to an implementation.
  *
  * With `useMockBackend` false the app talks HTTP to the services. The mock
- * classes stay registered because the HTTP implementations delegate to them
- * for the capabilities no service exposes — saved searches, custodians, hold
- * scope preview, retention policy editing, the export manifest and audit
- * filtering. `environment.mockBacked` is the authoritative list.
+ * classes stay registered because `HttpCaseApi` still delegates to one: case
+ * custodians and single-item evidence removal have nowhere to be stored,
+ * because the case service models communications rather than people.
+ * `environment.mockBacked` is the authoritative list.
  *
  * No component imports a concrete implementation, so flipping the switch
  * changes nothing above this layer.
  */
-export function provideDiscoveryHubApi(): Provider[] {
-  // Always available: the HTTP implementations inject these as a fallback.
-  const mocks: Provider[] = [
-    MockSearchApi,
-    MockCaseApi,
-    MockHoldApi,
-    MockExportApi,
-    MockAuditApi,
-    MockPlatformApi,
+/** The mock implementations, registered so the HTTP classes can delegate. */
+const MOCKS: Provider[] = [
+  MockSearchApi,
+  MockCaseApi,
+  MockHoldApi,
+  MockExportApi,
+  MockAuditApi,
+  MockPlatformApi,
+];
+
+/**
+ * Binds every contract to the in-memory backend.
+ *
+ * Exported for tests. Component specs must not go through
+ * {@link provideDiscoveryHubApi}: that resolves to the HTTP clients, which
+ * need an `HttpClient` the TestBed does not provide, and every page degrades
+ * to an error band instead of rendering — so the specs would pass while
+ * asserting nothing.
+ */
+export function provideMockDiscoveryHubApi(): Provider[] {
+  return [
+    ...MOCKS,
+    { provide: SearchApi, useExisting: MockSearchApi },
+    { provide: CaseApi, useExisting: MockCaseApi },
+    { provide: HoldApi, useExisting: MockHoldApi },
+    { provide: ExportApi, useExisting: MockExportApi },
+    { provide: AuditApi, useExisting: MockAuditApi },
+    { provide: PlatformApi, useExisting: MockPlatformApi },
   ];
+}
+
+export function provideDiscoveryHubApi(): Provider[] {
+  const mocks = MOCKS;
 
   if (environment.useMockBackend) {
-    return [
-      ...mocks,
-      { provide: SearchApi, useExisting: MockSearchApi },
-      { provide: CaseApi, useExisting: MockCaseApi },
-      { provide: HoldApi, useExisting: MockHoldApi },
-      { provide: ExportApi, useExisting: MockExportApi },
-      { provide: AuditApi, useExisting: MockAuditApi },
-      { provide: PlatformApi, useExisting: MockPlatformApi },
-    ];
+    return provideMockDiscoveryHubApi();
   }
 
   return [

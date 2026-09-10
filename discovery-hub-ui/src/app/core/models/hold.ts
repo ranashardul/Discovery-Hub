@@ -1,8 +1,24 @@
 /**
- * Holds propagate asynchronously (FR-4.3), so a hold is PROPAGATING until the
- * worker has marked every message in scope.
+ * Hold lifecycle, matching `HoldStatus` in case-hold-service.
+ *
+ * A hold is ACTIVE or RELEASED the moment it is written to PostgreSQL.
+ * Propagation onto the message data happens asynchronously afterwards, via
+ * `case-hold.events` → ingestion → `holdIds`/`holdCount`, but the hold record
+ * itself has no intermediate state. There is deliberately no PROPAGATING here:
+ * the legal artefact exists as soon as it is recorded, and showing it as
+ * pending would understate that.
  */
-export type HoldStatus = 'PROPAGATING' | 'ACTIVE' | 'RELEASING' | 'RELEASED';
+export type HoldStatus = 'ACTIVE' | 'RELEASED';
+
+export const HOLD_STATUSES: readonly HoldStatus[] = ['ACTIVE', 'RELEASED'];
+
+/** Narrows a status off the wire, failing loudly rather than casting blindly. */
+export function toHoldStatus(value: string): HoldStatus {
+  if ((HOLD_STATUSES as readonly string[]).includes(value)) {
+    return value as HoldStatus;
+  }
+  throw new Error(`Unknown hold status from case-hold-service: ${value}`);
+}
 
 export interface HoldScope {
   custodianIds: string[];
@@ -23,10 +39,8 @@ export interface LegalHold {
   placedBy: string;
   releasedAt: string | null;
   releasedBy: string | null;
-  /** Messages the worker has stamped so far. */
+  /** Communications the hold covers, as recorded by the case-hold service. */
   matchedMessageCount: number;
-  /** Total the scope resolved to, used to render propagation progress. */
-  estimatedScopeCount: number;
 }
 
 export interface PlaceHoldRequest {

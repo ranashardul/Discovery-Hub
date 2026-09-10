@@ -151,28 +151,28 @@ export const CASE_SEEDS = [
     description:
       'Review of business communications conducted over unapproved consumer messaging applications by the Fixed Income Trading desk during the second and third quarters.',
     matterType: 'INVESTIGATION' as const,
-    status: 'ACTIVE' as const,
+    status: 'OPEN' as const,
   },
   {
     name: 'Northwind Pension suitability dispute',
     description:
       'Litigation hold covering advisory communications with Northwind Pension relating to concentration limits and the disputed rebalance.',
     matterType: 'LITIGATION' as const,
-    status: 'UNDER_REVIEW' as const,
+    status: 'OPEN' as const,
   },
   {
     name: 'Regulatory inquiry — best execution 2026',
     description:
       'Response to a regulator request for communications evidencing venue selection and best execution exception handling.',
     matterType: 'REGULATORY_INQUIRY' as const,
-    status: 'ACTIVE' as const,
+    status: 'OPEN' as const,
   },
   {
     name: 'Personal account dealing sweep',
     description:
       'Routine surveillance sweep of pre-clearance and disclosure communications ahead of the quarterly attestation cycle.',
     matterType: 'INVESTIGATION' as const,
-    status: 'DRAFT' as const,
+    status: 'ARCHIVED' as const,
   },
   {
     name: 'Arclight wall crossing audit',

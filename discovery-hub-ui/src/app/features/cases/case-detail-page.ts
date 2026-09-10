@@ -118,20 +118,20 @@ export class CaseDetailPage {
   );
 
   constructor() {
-    // Asynchronous work (hold propagation, export jobs) is polled, exactly as
-    // it would be against the real services.
+    // Export jobs are assembled asynchronously by the export worker, so the
+    // page polls while any job is still queued or running. Holds need no
+    // polling: the case-hold service writes them as ACTIVE synchronously.
     interval(environment.jobPollIntervalMs)
       .pipe(takeUntilDestroyed())
       .subscribe(() => {
         if (!this.legalCase()) {
           return;
         }
-        const inFlight =
-          this.holds().some((hold) => hold.status === 'PROPAGATING' || hold.status === 'RELEASING') ||
-          this.exports().some((job) => job.status === 'QUEUED' || job.status === 'RUNNING');
+        const inFlight = this.exports().some(
+          (job) => job.status === 'QUEUED' || job.status === 'RUNNING',
+        );
 
         if (inFlight) {
-          this.refreshHolds();
           this.refreshExports();
           this.refreshCase();
         }
@@ -284,7 +284,8 @@ export class CaseDetailPage {
         }),
       );
       this.toast.success(
-        `Hold ${hold.id} accepted — propagating across ${hold.estimatedScopeCount} message(s) in the background`,
+        `Hold ${hold.id} placed over ${hold.matchedMessageCount} communication(s). ` +
+          'Preservation is applied to the message data in the background.',
       );
       this.holdModalOpen.set(false);
       this.tab.set('holds');
@@ -327,7 +328,7 @@ export class CaseDetailPage {
       const job = await firstValueFrom(
         this.exportApi.requestExport({
           caseId: this.id(),
-          scopeType: holdId ? 'HOLD_SCOPE' : 'CASE_EVIDENCE',
+          scopeType: holdId ? 'LEGAL_HOLD' : 'CASE',
           holdId,
         }),
       );

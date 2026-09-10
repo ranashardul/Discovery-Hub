@@ -1,9 +1,11 @@
 package com.stown.search.index;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.Result;
 import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.SortOrder;
+import co.elastic.clients.elasticsearch._types.aggregations.Aggregate;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.DeleteResponse;
 import co.elastic.clients.elasticsearch.core.GetResponse;
@@ -17,7 +19,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -32,13 +36,61 @@ public class MessageIndexClient {
     /** Elasticsearch default for {@code index.max_result_window}. */
     private static final int MAX_PAGE_SIZE = 10_000;
 
+    /**
+     * Stable tiebreaker for {@code search_after}. Must be a doc-values field:
+     * fielddata on {@code _id} is disallowed, and the analysed {@code sender}
+     * style fields would sort by token. {@code messageId} is mapped as
+     * {@code keyword} below.
+     */
+    private static final String ID_SORT_FIELD = "messageId";
+
     private final ElasticsearchClient elasticsearchClient;
     private final SearchProperties properties;
 
     private volatile boolean indexReady;
 
+    /**
+     * When the index was last confirmed to exist. The "index exists" answer is
+     * cached to keep a HEAD request off every search and write, but it is
+     * re-checked on this interval so an index dropped underneath the service
+     * is noticed and rebuilt from the explicit mapping — rather than being
+     * auto-created by Elasticsearch with a dynamic one on the next write,
+     * which silently breaks every exact-match filter.
+     */
+    private volatile long lastVerifiedAt;
+
+    private static final long REVALIDATE_AFTER_MS = 30_000L;
+
     public String indexName() {
         return properties.getIndex();
+    }
+
+    /**
+     * Forgets that the index was confirmed present, so the next
+     * {@link #ensureIndex()} re-checks and recreates it from the explicit
+     * mapping below.
+     *
+     * <p>Needed because {@code indexReady} is a cache, and an index can
+     * disappear underneath a running service. Dropping and rebuilding the
+     * index is the documented way to apply a mapping change, so this is a
+     * routine operation, not an edge case:
+     *
+     * <pre>
+     * curl -X DELETE localhost:9200/messages
+     * curl -X POST   localhost:8082/api/search/reindex?force=true
+     * </pre>
+     *
+     * <p>Without this the reindex found {@code indexReady} still true, skipped
+     * creation, and wrote into a missing index — so Elasticsearch auto-created
+     * it with a <em>dynamic</em> mapping. Every {@code keyword} field below
+     * became analysed {@code text}, which silently returns zero hits for
+     * exact-match filters on {@code communicationType}, {@code threadId},
+     * {@code holdIds} and {@code dispositionStatus}, and makes the
+     * {@code messageId} sort fail outright. The procedure meant to repair the
+     * mapping was the thing corrupting it.
+     */
+    public synchronized void invalidateIndexCache() {
+        indexReady = false;
     }
 
     /**
@@ -46,7 +98,7 @@ public class MessageIndexClient {
      * call repeatedly and from multiple threads.
      */
     public synchronized void ensureIndex() throws IOException {
-        if (indexReady) {
+        if (indexReady && !revalidationDue()) {
             return;
         }
 
@@ -56,8 +108,20 @@ public class MessageIndexClient {
                 .value();
 
         if (exists) {
-            indexReady = true;
+            markReady();
             return;
+        }
+
+        if (indexReady) {
+            // Confirmed present earlier and gone now: something dropped it
+            // while the service was running. Say so, because the rebuilt
+            // index starts empty and searches will legitimately return
+            // nothing until a reindex repopulates it.
+            log.warn(
+                    "Index index={} has disappeared and is being recreated from the"
+                            + " explicit mapping; it will be empty until a reindex runs",
+                    index
+            );
         }
 
         try {
@@ -96,7 +160,16 @@ public class MessageIndexClient {
             }
         }
 
+        markReady();
+    }
+
+    private void markReady() {
         indexReady = true;
+        lastVerifiedAt = System.currentTimeMillis();
+    }
+
+    private boolean revalidationDue() {
+        return System.currentTimeMillis() - lastVerifiedAt > REVALIDATE_AFTER_MS;
     }
 
     public void index(SearchDocument document) throws IOException {
@@ -192,6 +265,99 @@ public class MessageIndexClient {
 
     public void refresh() throws IOException {
         elasticsearchClient.indices().refresh(request -> request.index(indexName()));
+    }
+
+    /**
+     * Returns every message id matching the query, in a stable order.
+     *
+     * <p>Uses {@code search_after} rather than {@code from}/{@code size}
+     * paging. Deep paging past {@code index.max_result_window} (10,000 by
+     * default) is rejected outright, and even below that a shifting result set
+     * can repeat or skip documents between pages, which for "add every match
+     * to a case" would silently produce the wrong evidence set.
+     *
+     * <p>Sorts on {@code messageId.keyword}, not {@code _id}. Elasticsearch
+     * disallows fielddata access on {@code _id}, so sorting by it fails the
+     * whole request with {@code all shards failed}.
+     *
+     * <p>The caller supplies a hard cap: this exists to scope a case, not to
+     * export the corpus, and an unbounded scroll on a large archive is a way
+     * to exhaust the heap.
+     */
+    public List<String> searchIds(Query query, int cap, int pageSize) throws IOException {
+        ensureIndex();
+
+        List<String> ids = new ArrayList<>();
+        List<FieldValue> cursor = null;
+
+        while (ids.size() < cap) {
+            int batch = Math.min(pageSize, cap - ids.size());
+            final List<FieldValue> after = cursor;
+
+            SearchResponse<Void> response = elasticsearchClient.search(request -> {
+                request.index(indexName())
+                        .query(query)
+                        .size(batch)
+                        .sort(sort -> sort.field(field -> field
+                                .field(ID_SORT_FIELD)
+                                .order(SortOrder.Asc)))
+                        // The ids come from the hit metadata, so there is no
+                        // reason to ship _source over the wire.
+                        .source(source -> source.fetch(false));
+
+                if (after != null) {
+                    request.searchAfter(after);
+                }
+
+                return request;
+            }, Void.class);
+
+            List<Hit<Void>> hits = response.hits().hits();
+            if (hits.isEmpty()) {
+                break;
+            }
+
+            hits.stream().map(Hit::id).filter(Objects::nonNull).forEach(ids::add);
+
+            if (hits.size() < batch) {
+                break;
+            }
+
+            cursor = hits.getLast().sort();
+            if (cursor == null || cursor.isEmpty()) {
+                break;
+            }
+        }
+
+        return ids;
+    }
+
+    /**
+     * Distinct senders with a message count, most prolific first.
+     *
+     * <p>Aggregates on {@code sender.keyword}: a {@code terms} aggregation on
+     * the analysed {@code sender} field would bucket by token, so
+     * "alice@stown.com" would come back as three separate custodians.
+     */
+    public List<Map.Entry<String, Long>> aggregateSenders(int limit) throws IOException {
+        ensureIndex();
+
+        SearchResponse<Void> response = elasticsearchClient.search(request -> request
+                .index(indexName())
+                .size(0)
+                .aggregations("senders", aggregation -> aggregation
+                        .terms(terms -> terms.field("sender.keyword").size(limit))),
+                Void.class
+        );
+
+        Aggregate aggregate = response.aggregations().get("senders");
+        if (aggregate == null || !aggregate.isSterms()) {
+            return List.of();
+        }
+
+        return aggregate.sterms().buckets().array().stream()
+                .map(bucket -> Map.entry(bucket.key().stringValue(), bucket.docCount()))
+                .toList();
     }
 
     public SearchResponse<SearchDocument> search(

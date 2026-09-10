@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, forkJoin, map, of } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import { MockPlatformApi } from '../../mock/mock-apis';
+
 import { CommunicationType } from '../../models/message';
 import {
   DashboardCounts,
@@ -11,6 +11,7 @@ import {
   ServiceStatus,
 } from '../../models/retention';
 import { SearchStats } from '../../models/search';
+import { AuditApi } from '../audit-api';
 import { CaseApi } from '../case-api';
 import { ExportApi } from '../export-api';
 import { HoldApi } from '../hold-api';
@@ -33,6 +34,15 @@ interface WireDispositionRun {
   deleteCapReached?: boolean;
 }
 
+/** Wire shape of GET /api/ingestion/retention/policies. */
+interface WireRetentionPolicy {
+  communicationType: string;
+  retentionPeriod: string;
+  retentionMinutes: number;
+}
+
+const ACTOR = 'discovery-hub-ui';
+
 /** Each service is proxied under its own health path; see proxy.conf.json. */
 const SERVICES: { name: string; path: string; port: number }[] = [
   { name: 'ingestion-service', path: 'ingestion', port: 8081 },
@@ -48,8 +58,7 @@ export class HttpPlatformApi extends PlatformApi {
   private readonly cases = inject(CaseApi);
   private readonly holds = inject(HoldApi);
   private readonly exports = inject(ExportApi);
-  /** Retention policy read/write and the disposition trigger have no endpoint. */
-  private readonly fallback = inject(MockPlatformApi);
+  private readonly audit = inject(AuditApi);
 
   /**
    * Fans out across services because no single endpoint reports platform-wide
@@ -76,27 +85,35 @@ export class HttpPlatformApi extends PlatformApi {
       chatCount: total({ communicationType: 'CHAT' }),
       withAttachments: total({ hasAttachments: true }),
       heldMessages: total({ onHold: true }),
+      custodians: this.cases.listAllCustodians().pipe(
+        map((list) => list.length),
+        catchError(() => of(0)),
+      ),
+      // One entry is enough to learn the total, so size=1 keeps the payload
+      // small on a trail that only grows.
+      auditEntries: this.audit.query({ page: 0, size: 1 }).pipe(
+        map((page) => page.total),
+        catchError(() => of(0)),
+      ),
     }).pipe(
-      map(({ stats, cases, holds, exports, emailCount, chatCount, withAttachments, heldMessages }) => ({
-        totalMessages: stats?.indexedCount ?? 0,
-        indexedMessages: stats?.indexedCount ?? 0,
-        emailCount,
-        chatCount,
-        withAttachments,
-        // No service counts distinct custodians; the sender list is not exposed.
-        custodians: 0,
-        activeCases: cases.filter((item) => item.status !== 'CLOSED').length,
-        totalCases: cases.length,
-        activeHolds: holds.filter((hold) => hold.status === 'ACTIVE').length,
-        heldMessages,
-        exportsCompleted: exports.filter((job) => job.status === 'COMPLETED').length,
-        exportsInFlight: exports.filter(
+      map((counts) => ({
+        totalMessages: counts.stats?.indexedCount ?? 0,
+        indexedMessages: counts.stats?.indexedCount ?? 0,
+        emailCount: counts.emailCount,
+        chatCount: counts.chatCount,
+        withAttachments: counts.withAttachments,
+        custodians: counts.custodians,
+        activeCases: counts.cases.filter((item) => item.status !== 'CLOSED').length,
+        totalCases: counts.cases.length,
+        activeHolds: counts.holds.filter((hold) => hold.status === 'ACTIVE').length,
+        heldMessages: counts.heldMessages,
+        exportsCompleted: counts.exports.filter((job) => job.status === 'COMPLETED').length,
+        exportsInFlight: counts.exports.filter(
           (job) => job.status === 'QUEUED' || job.status === 'RUNNING',
         ).length,
-        // Audit is queryable per case or target only, so there is no total.
-        auditEntries: 0,
+        auditEntries: counts.auditEntries,
         // Disposed messages are deleted outright, so nothing remains to count;
-        // the disposition runs below carry the history.
+        // the disposition runs carry the history.
         disposedMessages: 0,
       })),
     );
@@ -129,16 +146,61 @@ export class HttpPlatformApi extends PlatformApi {
     );
   }
 
-  /** Retention periods are configuration on the ingestion service, not an API. */
+  /**
+   * Effective retention periods. The service layers any period set through
+   * this API over the ones the environment was configured with, so what comes
+   * back is what disposition will actually apply.
+   *
+   * DEFAULT is filtered out: it is the fallback for unmapped types, not a
+   * communication type the screen can edit.
+   */
   retentionPolicies(): Observable<RetentionPolicy[]> {
-    return this.fallback.retentionPolicies();
+    return this.http
+      .get<WireRetentionPolicy[]>(`${environment.api.ingestion}/retention/policies`)
+      .pipe(
+        map((policies) =>
+          policies
+            .filter((policy) => policy.communicationType !== 'DEFAULT')
+            .map(
+              (policy): RetentionPolicy => ({
+                communicationType: policy.communicationType as CommunicationType,
+                retentionMinutes: policy.retentionMinutes,
+                // The service records who changed a period but does not
+                // return it on the read; the audit trail carries the history.
+                updatedAt: '',
+                updatedBy: '',
+              }),
+            ),
+        ),
+        catchError(toApiError),
+      );
   }
 
+  /**
+   * Shortening a period means the next disposition run deletes material that
+   * was previously in scope. The service refuses anything below its configured
+   * floor, so a 400 here is the guard rail working, not a client bug.
+   */
   updateRetentionPolicy(
     communicationType: CommunicationType,
     retentionMinutes: number,
   ): Observable<RetentionPolicy> {
-    return this.fallback.updateRetentionPolicy(communicationType, retentionMinutes);
+    return this.http
+      .put<WireRetentionPolicy>(
+        `${environment.api.ingestion}/retention/policies/${encodeURIComponent(communicationType)}`,
+        { retentionMinutes, updatedBy: ACTOR },
+      )
+      .pipe(
+        map(
+          (policy): RetentionPolicy => ({
+            communicationType: policy.communicationType as CommunicationType,
+            retentionMinutes: policy.retentionMinutes,
+            updatedAt: new Date().toISOString(),
+            updatedBy: ACTOR,
+          }),
+        ),
+        catchError(toApiError),
+      );
   }
 
   dispositionRuns(): Observable<DispositionRun[]> {
@@ -147,9 +209,17 @@ export class HttpPlatformApi extends PlatformApi {
       .pipe(map((runs) => runs.map((run) => this.toRun(run))), catchError(toApiError));
   }
 
-  /** The disposition job is scheduled; there is no endpoint to trigger one. */
+  /**
+   * Runs a disposition pass now rather than waiting for the scheduler.
+   *
+   * This deletes data. The service refuses it outright when disposition is
+   * disabled for the environment, and while another pass is in flight, so
+   * both come back as a 409 rather than doing something surprising.
+   */
   runDisposition(): Observable<DispositionRun> {
-    return this.fallback.runDisposition();
+    return this.http
+      .post<WireDispositionRun>(`${environment.api.ingestion}/disposition/runs`, {})
+      .pipe(map((run) => this.toRun(run)), catchError(toApiError));
   }
 
   private toRun(run: WireDispositionRun): DispositionRun {

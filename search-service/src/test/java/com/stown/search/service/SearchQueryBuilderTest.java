@@ -90,6 +90,68 @@ class SearchQueryBuilderTest {
         assertThat(query.bool().filter().getFirst().term().field()).isEqualTo("sender.keyword");
     }
 
+    /**
+     * A hold's {@code participants} rule means "sender or any recipient", so
+     * it has to be one OR clause. Combining the separate sender and recipient
+     * filters would AND them and match only someone who wrote to themselves.
+     */
+    @Test
+    void matchesAParticipantOnEitherSideOfTheConversation() {
+        Query query = builder.build(criteria(
+                SearchRequest.builder().participants(List.of("alice@example.com"))
+        ));
+
+        Query participantClause = query.bool().filter().getFirst();
+        BoolQuery inner = participantClause.bool();
+
+        assertThat(inner.should()).hasSize(2);
+        assertThat(inner.minimumShouldMatch()).isEqualTo("1");
+        assertThat(inner.should()).extracting(should -> should.terms().field())
+                .containsExactly("sender.keyword", "recipients.keyword");
+    }
+
+    /** Several participants are an OR, so they stay in one clause. */
+    @Test
+    void treatsSeveralParticipantsAsOneOrClause() {
+        Query query = builder.build(criteria(
+                SearchRequest.builder().participants(List.of("alice@example.com", "bob@example.com"))
+        ));
+
+        assertThat(query.bool().filter()).hasSize(1);
+
+        List<String> senderTerms = query.bool().filter().getFirst().bool().should().getFirst()
+                .terms().terms().value().stream()
+                .map(value -> value.stringValue())
+                .toList();
+
+        assertThat(senderTerms).containsExactly("alice@example.com", "bob@example.com");
+    }
+
+    @Test
+    void ignoresBlankAndDuplicateParticipants() {
+        Query query = builder.build(criteria(SearchRequest.builder()
+                .q("merger")
+                .participants(List.of("alice@example.com", "  ", "alice@example.com"))));
+
+        List<String> senderTerms = query.bool().filter().getFirst().bool().should().getFirst()
+                .terms().terms().value().stream()
+                .map(value -> value.stringValue())
+                .toList();
+
+        assertThat(senderTerms).containsExactly("alice@example.com");
+    }
+
+    /** A participant filter alone is enough to make a request valid. */
+    @Test
+    void acceptsAParticipantFilterWithNoQueryText() {
+        Query query = builder.build(criteria(
+                SearchRequest.builder().participants(List.of("alice@example.com"))
+        ));
+
+        assertThat(query.bool().must()).hasSize(1);
+        assertThat(query.bool().must().getFirst().isMatchAll()).isTrue();
+    }
+
     @Test
     void filtersOnMessagesUnderLegalHold() {
         Query query = builder.build(criteria(SearchRequest.builder().q("merger").onHold(true)));
@@ -191,8 +253,48 @@ class SearchQueryBuilderTest {
         assertThat(sort).hasSize(2);
         assertThat(sort.getFirst().field().field()).isEqualTo(SearchQueryBuilder.TIMESTAMP_FIELD);
         assertThat(sort.getFirst().field().order()).isEqualTo(SortOrder.Desc);
-        assertThat(sort.getLast().field().field()).isEqualTo("messageId");
+        assertThat(sort.getLast().field().field()).isEqualTo(SearchQueryBuilder.ID_TIEBREAK_FIELD);
         assertThat(sort.getLast().field().order()).isEqualTo(SortOrder.Asc);
+    }
+
+    /**
+     * The tiebreaker must be a field the index mapping declares as
+     * {@code keyword}, because only those carry doc values and are sortable.
+     * {@code MessageIndexClient.ensureIndex} maps {@code messageId} that way.
+     *
+     * <p>This is asserted for both chronological orders because a request that
+     * sorts on an analysed field does not degrade — Elasticsearch fails it
+     * outright with "all shards failed", which takes out every chronological
+     * search and, since they fall back to this ordering, every filter-only
+     * search too.
+     */
+    @Test
+    void breaksTiesOnAFieldTheMappingDeclaresAsKeyword() {
+        for (String order : List.of("newest", "oldest")) {
+            List<SortOptions> sort = builder.sort(
+                    criteria(SearchRequest.builder().q("merger").sort(order))
+            );
+
+            assertThat(sort.getLast().field().field())
+                    .as("tiebreaker for sort=%s must be a keyword-mapped field", order)
+                    .isEqualTo("messageId");
+        }
+    }
+
+    /**
+     * A filter-only request has no text to score, so it falls back to the
+     * chronological ordering. That path is what the dashboard's archive
+     * composition counts and the thread view both use.
+     */
+    @Test
+    void fallsBackToAChronologicalSortWhenThereIsNoQueryText() {
+        List<SortOptions> sort = builder.sort(
+                criteria(SearchRequest.builder().communicationType("EMAIL"))
+        );
+
+        assertThat(sort).hasSize(2);
+        assertThat(sort.getFirst().field().field()).isEqualTo(SearchQueryBuilder.TIMESTAMP_FIELD);
+        assertThat(sort.getLast().field().field()).isEqualTo(SearchQueryBuilder.ID_TIEBREAK_FIELD);
     }
 
     @Test

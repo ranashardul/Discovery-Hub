@@ -4,6 +4,7 @@ import com.mongodb.client.result.UpdateResult;
 import com.stown.ingestion.domain.DispositionStatus;
 import com.stown.ingestion.domain.HoldState;
 import com.stown.ingestion.domain.MessageDocument;
+import com.stown.ingestion.domain.OutboxStatus;
 import com.stown.ingestion.messaging.CaseHoldEvent;
 import com.stown.ingestion.repository.HoldStateRepository;
 import lombok.RequiredArgsConstructor;
@@ -110,7 +111,7 @@ public class LegalHoldProjectionService {
                         List.of(event.getHoldId())
                 ))));
 
-        long modified = applyPipeline(filter, List.of(addHold, deriveStage()));
+        long modified = applyPipeline(filter, List.of(addHold, deriveStage(), republishStage()));
 
         log.info(
                 "Applied hold holdId={} caseId={} scope={} messagesAffected={}",
@@ -132,7 +133,7 @@ public class LegalHoldProjectionService {
 
         long modified = applyPipeline(
                 new Document("holdIds", event.getHoldId()),
-                List.of(removeHold, deriveStage())
+                List.of(removeHold, deriveStage(), republishStage())
         );
 
         log.info(
@@ -162,6 +163,36 @@ public class LegalHoldProjectionService {
                         DispositionStatus.ON_HOLD,
                         DispositionStatus.ACTIVE
                 ))));
+    }
+
+    /**
+     * Re-arms the outbox so the new hold state reaches the search index.
+     *
+     * <p>Without this the projection is invisible downstream. This service
+     * writes {@code holdIds}, {@code holdCount} and {@code dispositionStatus}
+     * straight to MongoDB, and search-service only learns about a message from
+     * a {@code message.ingested} event. The message was published long ago, so
+     * its outbox reads {@code PUBLISHED} and no further event is coming.
+     * Nothing on the search side closes the gap either: the reconciliation
+     * back-fill tests {@code exists(id)}, which is true, and the orphan sweep
+     * only deletes. The result was an index that reported every held message
+     * as {@code holdCount: 0, dispositionStatus: ACTIVE} indefinitely, so
+     * {@code ?onHold=true} and the {@code holdId} filter could never match.
+     *
+     * <p>Marking the outbox {@code PENDING} puts the message back in front of
+     * {@link OutboxPublisher}, which republishes {@code message.ingested} on
+     * its next sweep; search then re-reads the document from MongoDB and
+     * re-indexes it. Re-using the existing path keeps one way for message
+     * state to reach the index, and it is idempotent because the index is
+     * keyed by message id.
+     *
+     * <p>Deletion enforcement never depended on this — that reads MongoDB
+     * directly — so holds were always honoured. Only the projection was stale.
+     */
+    private Document republishStage() {
+        return new Document("$set", new Document()
+                .append("outboxStatus", OutboxStatus.PENDING.name())
+                .append("outboxPublishedAt", null));
     }
 
     private long applyPipeline(Bson filter, List<? extends Bson> pipeline) {
