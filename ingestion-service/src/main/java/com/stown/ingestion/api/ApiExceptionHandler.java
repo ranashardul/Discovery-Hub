@@ -1,5 +1,7 @@
 package com.stown.ingestion.api;
 
+import com.stown.ingestion.service.DispositionDisabledException;
+import com.stown.ingestion.service.DispositionInProgressException;
 import com.stown.ingestion.service.HeldMessageDeletionException;
 import com.stown.ingestion.service.InvalidAttachmentException;
 import com.stown.ingestion.service.MessageNotFoundException;
@@ -98,6 +100,24 @@ public class ApiExceptionHandler {
 
         return build(HttpStatus.CONFLICT, detail, request, List.of());
 
+    }
+
+    /**
+     * A disposition run was requested but cannot start. Both cases are a
+     * conflict with current state rather than a bad request: the pass is
+     * already running, or the environment has disposition switched off.
+     */
+    @ExceptionHandler({
+            DispositionInProgressException.class,
+            DispositionDisabledException.class
+    })
+    public ResponseEntity<ApiErrorResponse> handleDispositionUnavailable(
+            RuntimeException exception,
+            HttpServletRequest request
+    ) {
+        log.warn("Refused disposition request: {}", exception.getMessage());
+
+        return build(HttpStatus.CONFLICT, exception.getMessage(), request, List.of());
     }
 
     @ExceptionHandler({

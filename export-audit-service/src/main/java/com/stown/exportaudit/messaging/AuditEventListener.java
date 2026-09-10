@@ -20,7 +20,8 @@ public class AuditEventListener {
 
     @KafkaListener(
             topics = "${app.export.audit-topic}",
-            groupId = "${spring.kafka.consumer.group-id:export-audit-service}"
+            groupId = "${spring.kafka.consumer.group-id:export-audit-service}",
+            containerFactory = "auditEventListenerFactory"
     )
     public void onAuditEvent(AuditEvent event) {
         if (event == null) {

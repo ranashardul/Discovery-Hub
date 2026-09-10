@@ -37,6 +37,9 @@ import java.util.concurrent.CompletableFuture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -81,6 +84,9 @@ class DispositionServiceTest {
     @Mock
     private KafkaTemplate<String, MessageDisposedEvent> kafkaTemplate;
 
+    @Mock
+    private AuditPublisher auditPublisher;
+
     private RetentionProperties properties;
 
     private DispositionService service;
@@ -100,7 +106,8 @@ class DispositionServiceTest {
                 storageService,
                 mongoTemplate,
                 kafkaTemplate,
-                properties
+                properties,
+                auditPublisher
         );
 
         when(storageService.getBucket()).thenReturn(BUCKET);
@@ -465,6 +472,95 @@ class DispositionServiceTest {
 
         assertThatThrownBy(() -> service.deleteOnRequest("nope"))
                 .isInstanceOf(MessageNotFoundException.class);
+    }
+
+    // ----------------------------------------------------------- audit trail
+
+    /**
+     * FR-4.6 is a claim about what the platform refuses to do, so the refusal
+     * has to reach the audit trail. Without this the only evidence a deletion
+     * was blocked is a log line.
+     */
+    @Test
+    void publishesAnAuditEventWhenDeletionIsBlockedByAHold() {
+        MessageDocument held = message("audit-held", 2, List.of("hold-a", "hold-b"));
+        when(messageRepository.findById("audit-held")).thenReturn(Optional.of(held));
+
+        assertThatThrownBy(() -> service.deleteOnRequest("audit-held"))
+                .isInstanceOf(HeldMessageDeletionException.class);
+
+        verify(auditPublisher).deletionBlocked("audit-held", 2, List.of("hold-a", "hold-b"));
+    }
+
+    @Test
+    void publishesAnAuditEventWhenAMessageIsDeletedOnRequest() {
+        MessageDocument free = message("audit-free", 0, List.of());
+        when(messageRepository.findById("audit-free")).thenReturn(Optional.of(free));
+        when(mongoTemplate.findAndRemove(any(Query.class), eq(MessageDocument.class)))
+                .thenReturn(free);
+
+        service.deleteOnRequest("audit-free");
+
+        verify(auditPublisher).messageDeleted(eq("audit-free"), eq("MANUAL"), anyInt());
+    }
+
+    @Test
+    void publishesAnAuditEventWhenADispositionRunCompletes() {
+        MessageDocument expired = message("run-audit", 0, List.of());
+        when(messageRepository.findByRetentionUntilLessThanEqual(any(), any()))
+                .thenReturn(List.of(expired));
+        when(mongoTemplate.findAndRemove(any(Query.class), eq(MessageDocument.class)))
+                .thenReturn(expired);
+
+        DispositionRun run = service.disposeExpired();
+
+        verify(auditPublisher).dispositionRunCompleted(
+                eq(run.getRunId()),
+                eq(DispositionService.TRIGGER_SCHEDULED),
+                eq(1L),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                eq(false)
+        );
+    }
+
+    /** A run that scanned nothing is not worth an audit entry. */
+    @Test
+    void publishesNoAuditEventWhenARunFindsNothingToDo() {
+        when(messageRepository.findByRetentionUntilLessThanEqual(any(), any()))
+                .thenReturn(List.of());
+
+        service.disposeExpired();
+
+        verify(auditPublisher, never()).dispositionRunCompleted(
+                anyString(), anyString(), anyLong(), anyLong(), anyLong(), anyLong(), anyBoolean()
+        );
+    }
+
+    // ------------------------------------------------- manual disposition run
+
+    @Test
+    void manualDispositionRecordsItsTriggerSoTheAuditTrailSaysAPersonRanIt() {
+        when(messageRepository.findByRetentionUntilLessThanEqual(any(), any()))
+                .thenReturn(List.of());
+
+        assertThat(service.disposeOnRequest().getTrigger())
+                .isEqualTo(DispositionService.TRIGGER_MANUAL);
+    }
+
+    /**
+     * Disposition destroys data and is opt-in per environment. An HTTP
+     * endpoint must not be a way around that switch.
+     */
+    @Test
+    void manualDispositionIsRefusedWhenDispositionIsDisabled() {
+        properties.setEnabled(false);
+
+        assertThatThrownBy(() -> service.disposeOnRequest())
+                .isInstanceOf(DispositionDisabledException.class);
+
+        verify(messageRepository, never()).findByRetentionUntilLessThanEqual(any(), any());
     }
 
     // -------------------------------------------------------------- helpers

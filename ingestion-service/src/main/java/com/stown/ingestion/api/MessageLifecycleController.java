@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -65,6 +66,23 @@ public class MessageLifecycleController {
                 "attachmentsPurged", audit.getS3Keys() == null ? 0 : audit.getS3Keys().size(),
                 "disposedAt", audit.getCompletedAt()
         ));
+    }
+
+    /**
+     * Runs a disposition pass now instead of waiting for the scheduler.
+     *
+     * <p><strong>This deletes data.</strong> It is refused with HTTP 409 when
+     * {@code app.retention.enabled} is false, so an environment that has
+     * disposition switched off cannot have its corpus deleted through the API,
+     * and refused again while another pass is in flight. Retention periods and
+     * the per-run delete cap still apply: this changes *when* a pass happens,
+     * never *what* it is allowed to remove.
+     */
+    @PostMapping("/disposition/runs")
+    public ResponseEntity<DispositionRunResponse> runDisposition() {
+        return ResponseEntity
+                .accepted()
+                .body(DispositionRunResponse.from(dispositionService.disposeOnRequest()));
     }
 
     /** Recent disposition runs, newest first. */

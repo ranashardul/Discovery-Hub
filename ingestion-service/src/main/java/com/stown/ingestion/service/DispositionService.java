@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Deletes messages whose retention has expired, except those under legal hold
@@ -60,6 +61,12 @@ public class DispositionService {
     private static final String REASON_RETENTION = "RETENTION";
     private static final String REASON_MANUAL = "MANUAL";
 
+    public static final String TRIGGER_SCHEDULED = "SCHEDULED";
+    public static final String TRIGGER_MANUAL = "MANUAL";
+
+    /** Guards against two passes competing for the same candidates. */
+    private final AtomicBoolean running = new AtomicBoolean(false);
+
     private final MessageRepository messageRepository;
     private final IngestionRequestRepository requestRepository;
     private final DispositionAuditRepository auditRepository;
@@ -68,6 +75,7 @@ public class DispositionService {
     private final MongoTemplate mongoTemplate;
     private final KafkaTemplate<String, MessageDisposedEvent> kafkaTemplate;
     private final RetentionProperties properties;
+    private final AuditPublisher auditPublisher;
 
     @Scheduled(
             initialDelayString = "${app.retention.disposition-interval-ms:60000}",
@@ -78,15 +86,50 @@ public class DispositionService {
             return;
         }
 
-        disposeExpired();
+        disposeExpired(TRIGGER_SCHEDULED);
+    }
+
+    /**
+     * Runs one disposition pass on request rather than on the timer.
+     *
+     * <p>Refuses to run concurrently with the scheduler or with another manual
+     * request. Two passes over the same candidates would both try to delete
+     * them, and the second would count failures for work the first had already
+     * done, so the run summary would misreport what happened.
+     *
+     * @throws DispositionInProgressException when a pass is already running
+     */
+    public DispositionRun disposeOnRequest() {
+        if (!properties.isEnabled()) {
+            throw new DispositionDisabledException();
+        }
+
+        return disposeExpired(TRIGGER_MANUAL);
     }
 
     /** Runs one disposition pass and returns its record. Also callable from tests. */
     public DispositionRun disposeExpired() {
+        return disposeExpired(TRIGGER_SCHEDULED);
+    }
+
+    private DispositionRun disposeExpired(String trigger) {
+        if (!running.compareAndSet(false, true)) {
+            throw new DispositionInProgressException();
+        }
+
+        try {
+            return runPass(trigger);
+        } finally {
+            running.set(false);
+        }
+    }
+
+    private DispositionRun runPass(String trigger) {
         Instant now = Instant.now();
         DispositionRun run = DispositionRun.builder()
                 .runId(UUID.randomUUID().toString())
                 .startedAt(now)
+                .trigger(trigger)
                 .dryRun(properties.isDryRun())
                 .build();
 
@@ -127,6 +170,17 @@ public class DispositionService {
 
         if (run.getScanned() > 0) {
             runRepository.save(run);
+
+            auditPublisher.dispositionRunCompleted(
+                    run.getRunId(),
+                    run.getTrigger(),
+                    run.getScanned(),
+                    run.getDeleted(),
+                    run.getSkippedOnHold(),
+                    run.getFailed(),
+                    run.isDryRun()
+            );
+
             log.info(
                     "Disposition run {} scanned={} deleted={} skippedOnHold={} failed={}"
                             + " objectsPurged={} dryRun={}",
@@ -199,6 +253,12 @@ public class DispositionService {
                 .orElseThrow(() -> new MessageNotFoundException(messageId));
 
         if (message.getHoldCount() > 0) {
+            auditPublisher.deletionBlocked(
+                    messageId,
+                    message.getHoldCount(),
+                    message.getHoldIds()
+            );
+
             throw new HeldMessageDeletionException(
                     messageId,
                     message.getHoldCount(),
@@ -220,10 +280,15 @@ public class DispositionService {
             audit.setCompletedAt(Instant.now());
             auditRepository.save(audit);
 
+            // A hold landed between the read above and this delete.
+            auditPublisher.deletionBlocked(messageId, 1, message.getHoldIds());
+
             throw new HeldMessageDeletionException(messageId, 1, message.getHoldIds());
         }
 
-        completeDisposition(removed, audit, REASON_MANUAL);
+        int purged = completeDisposition(removed, audit, REASON_MANUAL);
+
+        auditPublisher.messageDeleted(messageId, REASON_MANUAL, purged);
 
         return audit;
     }

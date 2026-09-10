@@ -36,6 +36,13 @@ public class DispositionRun {
     private int s3ObjectsPurged;
     private int searchPurgePublished;
 
+    /**
+     * What started the run: {@code SCHEDULED} for the timer, {@code MANUAL}
+     * for an operator calling the API. Recorded because a manual run is a
+     * deliberate act by a person and the audit trail should say so.
+     */
+    private String trigger;
+
     /** True when the run only reported and deleted nothing. */
     private boolean dryRun;
 
