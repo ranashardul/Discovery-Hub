@@ -34,7 +34,7 @@ export class CasesPage {
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
 
-  protected readonly statuses: CaseStatus[] = ['DRAFT', 'ACTIVE', 'UNDER_REVIEW', 'CLOSED'];
+  protected readonly statuses: CaseStatus[] = ['OPEN', 'CLOSED', 'ARCHIVED'];
   protected readonly matterTypes: MatterType[] = ['INVESTIGATION', 'LITIGATION', 'REGULATORY_INQUIRY'];
 
   protected readonly cases = signal<LegalCase[]>([]);

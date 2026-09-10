@@ -244,7 +244,7 @@ export class MockStore implements OnDestroy {
       description: request.description?.trim() ?? '',
       matterType: request.matterType,
       owner: request.owner.trim(),
-      status: 'DRAFT',
+      status: 'OPEN',
       createdAt: now,
       updatedAt: now,
       closedAt: null,
@@ -520,22 +520,30 @@ export class MockStore implements OnDestroy {
       id: `hold-${String(++this.holdCounter).padStart(4, '0')}`,
       caseId: request.caseId,
       reason: request.reason.trim(),
-      status: 'PROPAGATING',
+      // The case-hold service writes a hold as ACTIVE in one transaction, so
+      // there is no intermediate state to simulate here.
+      status: 'ACTIVE',
       scope: request.scope,
       placedAt: now,
       placedBy: CURRENT_ACTOR,
       releasedAt: null,
       releasedBy: null,
-      estimatedScopeCount: inScope.length,
-      stamped: new Set<string>(),
-      pending: inScope,
+      stamped: new Set<string>(inScope),
+      pending: [],
     };
+
+    for (const messageId of inScope) {
+      const message = this.corpus.byId.get(messageId);
+      if (message) {
+        message.holdCount++;
+      }
+    }
 
     this.holds.push(hold);
     record.updatedAt = now;
     this.append('HOLD_PLACED', 'HOLD', hold.id, hold.id, {
       caseId: hold.caseId,
-      summary: `Hold placed on ${record.caseNumber} covering ${inScope.length} message(s); propagating asynchronously`,
+      summary: `Hold placed on ${record.caseNumber} covering ${inScope.length} message(s)`,
       after: {
         reason: hold.reason,
         custodians: request.scope.custodianIds.length,
@@ -555,7 +563,15 @@ export class MockStore implements OnDestroy {
       throw ApiError.conflict('This hold has already been released');
     }
 
-    hold.status = 'RELEASING';
+    for (const messageId of hold.stamped) {
+      const message = this.corpus.byId.get(messageId);
+      if (message && message.holdCount > 0) {
+        message.holdCount--;
+      }
+    }
+    hold.stamped.clear();
+
+    hold.status = 'RELEASED';
     hold.releasedAt = new Date().toISOString();
     hold.releasedBy = releasedBy;
 
@@ -646,13 +662,13 @@ export class MockStore implements OnDestroy {
     this.assertOpen(record, 'export from');
 
     const itemCount =
-      request.scopeType === 'CASE_EVIDENCE'
+      request.scopeType === 'CASE'
         ? this.evidence.filter((item) => item.caseId === request.caseId).length
         : this.requireHold(request.holdId ?? '').stamped.size;
 
     if (itemCount === 0) {
       throw ApiError.badRequest(
-        request.scopeType === 'CASE_EVIDENCE'
+        request.scopeType === 'CASE'
           ? 'This case has no evidence items to export'
           : 'That hold covers no messages yet',
       );
@@ -977,39 +993,13 @@ export class MockStore implements OnDestroy {
 
   // ------------------------------------------------------ background ticks
 
-  /** Advances hold propagation and export jobs, the two asynchronous flows. */
+  /**
+   * Advances export jobs, the only asynchronous flow the services actually
+   * have. Holds are applied and released synchronously, matching
+   * case-hold-service.
+   */
   private tick(): void {
     let changed = false;
-
-    for (const hold of this.holds) {
-      if (hold.status === 'PROPAGATING') {
-        const batch = Math.max(25, Math.ceil(hold.estimatedScopeCount / 4));
-        const slice = hold.pending.splice(0, batch);
-
-        for (const messageId of slice) {
-          const message = this.corpus.byId.get(messageId);
-          if (message && !hold.stamped.has(messageId)) {
-            message.holdCount++;
-            hold.stamped.add(messageId);
-          }
-        }
-
-        if (hold.pending.length === 0) {
-          hold.status = 'ACTIVE';
-        }
-        changed = true;
-      } else if (hold.status === 'RELEASING') {
-        for (const messageId of hold.stamped) {
-          const message = this.corpus.byId.get(messageId);
-          if (message && message.holdCount > 0) {
-            message.holdCount--;
-          }
-        }
-        hold.stamped.clear();
-        hold.status = 'RELEASED';
-        changed = true;
-      }
-    }
 
     for (const job of this.exports) {
       if (job.status === 'QUEUED') {
@@ -1075,7 +1065,7 @@ export class MockStore implements OnDestroy {
   }
 
   private exportScopeMessageIds(job: ExportRecord): string[] {
-    if (job.scopeType === 'CASE_EVIDENCE') {
+    if (job.scopeType === 'CASE') {
       return this.evidence
         .filter((item) => item.caseId === job.caseId)
         .map((item) => item.messageId);
@@ -1251,7 +1241,7 @@ export class MockStore implements OnDestroy {
       releasedAt: record.releasedAt,
       releasedBy: record.releasedBy,
       matchedMessageCount: record.stamped.size,
-      estimatedScopeCount: record.estimatedScopeCount,
+
     };
   }
 
@@ -1375,7 +1365,7 @@ export class MockStore implements OnDestroy {
         description: seed.description,
         matterType: seed.matterType,
         owner: ACTORS[index % 3],
-        status: 'DRAFT',
+        status: 'OPEN',
         createdAt,
         updatedAt: createdAt,
         closedAt: null,
@@ -1414,15 +1404,9 @@ export class MockStore implements OnDestroy {
       });
 
       // Walk the lifecycle rather than assigning the status, so the transitions
-      // appear in the audit trail like any other change.
-      const path: CaseStatus[] =
-        seed.status === 'DRAFT'
-          ? []
-          : seed.status === 'ACTIVE'
-            ? ['ACTIVE']
-            : seed.status === 'UNDER_REVIEW'
-              ? ['ACTIVE', 'UNDER_REVIEW']
-              : ['ACTIVE', 'UNDER_REVIEW'];
+      // appear in the audit trail like any other change. Cases are created
+      // OPEN, so only a non-OPEN seed needs a transition recorded.
+      const path: CaseStatus[] = seed.status === 'OPEN' ? [] : [seed.status];
 
       for (const [position, status] of path.entries()) {
         const at = new Date(Date.parse(createdAt) + (position + 1) * 6 * 60 * MINUTES).toISOString();
@@ -1439,7 +1423,7 @@ export class MockStore implements OnDestroy {
         });
       }
 
-      if (record.status === 'ACTIVE' || record.status === 'UNDER_REVIEW') {
+      if (record.status === 'OPEN') {
         this.seedEvidence(record, this.random.int(6, 18));
       }
 
@@ -1506,9 +1490,7 @@ export class MockStore implements OnDestroy {
   }
 
   private seedHolds(): void {
-    const openCases = this.cases.filter(
-      (record) => record.status === 'ACTIVE' || record.status === 'UNDER_REVIEW',
-    );
+    const openCases = this.cases.filter((record) => record.status === 'OPEN');
 
     for (const record of openCases.slice(0, 3)) {
       const custodianIds = this.caseCustodians
@@ -1534,7 +1516,7 @@ export class MockStore implements OnDestroy {
         placedBy: record.owner,
         releasedAt: null,
         releasedBy: null,
-        estimatedScopeCount: inScope.length,
+
         stamped: new Set(inScope),
         pending: [],
       };
@@ -1569,7 +1551,7 @@ export class MockStore implements OnDestroy {
         id: `exp-${String(++this.exportCounter).padStart(4, '0')}`,
         caseId: record.id,
         caseName: record.name,
-        scopeType: 'CASE_EVIDENCE',
+        scopeType: 'CASE',
         holdId: null,
         status: 'COMPLETED',
         requestedAt,

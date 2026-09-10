@@ -2,9 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { catchError, firstValueFrom, interval, of } from 'rxjs';
-import { environment } from '../../../environments/environment';
+import { catchError, firstValueFrom, of } from 'rxjs';
 import { describeError } from '../../core/api/api-error';
 import { HoldApi } from '../../core/api/hold-api';
 import { SearchApi } from '../../core/api/search-api';
@@ -42,7 +40,7 @@ export class HoldsPage {
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
 
-  protected readonly statuses: HoldStatus[] = ['PROPAGATING', 'ACTIVE', 'RELEASING', 'RELEASED'];
+  protected readonly statuses: HoldStatus[] = ['ACTIVE', 'RELEASED'];
 
   protected readonly holds = signal<LegalHold[]>([]);
   protected readonly loading = signal(true);
@@ -59,24 +57,15 @@ export class HoldsPage {
   });
 
   protected readonly totals = computed(() => {
-    const active = this.holds().filter((hold) => hold.status !== 'RELEASED');
+    const active = this.holds().filter((hold) => hold.status === 'ACTIVE');
     return {
       active: active.length,
-      propagating: this.holds().filter((hold) => hold.status === 'PROPAGATING').length,
       held: active.reduce((total, hold) => total + hold.matchedMessageCount, 0),
     };
   });
 
   constructor() {
     this.load();
-
-    interval(environment.jobPollIntervalMs)
-      .pipe(takeUntilDestroyed())
-      .subscribe(() => {
-        if (this.holds().some((hold) => hold.status === 'PROPAGATING' || hold.status === 'RELEASING')) {
-          this.load(true);
-        }
-      });
   }
 
   protected load(quiet = false): void {

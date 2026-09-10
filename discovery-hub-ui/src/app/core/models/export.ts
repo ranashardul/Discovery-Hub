@@ -1,6 +1,21 @@
 export type ExportJobStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
-export type ExportScopeType = 'CASE_EVIDENCE' | 'HOLD_SCOPE';
+/**
+ * What an export covers, matching `ExportScope` in export-audit-service. A
+ * `CASE` export assembles the case's evidence items; a `LEGAL_HOLD` export
+ * assembles everything under a hold scope.
+ */
+export type ExportScopeType = 'CASE' | 'LEGAL_HOLD';
+
+export const EXPORT_SCOPES: readonly ExportScopeType[] = ['CASE', 'LEGAL_HOLD'];
+
+/** Narrows a scope off the wire, failing loudly rather than casting blindly. */
+export function toExportScope(value: string): ExportScopeType {
+  if ((EXPORT_SCOPES as readonly string[]).includes(value)) {
+    return value as ExportScopeType;
+  }
+  throw new Error(`Unknown export scope from export-audit-service: ${value}`);
+}
 
 export interface ManifestEntry {
   itemId: string;

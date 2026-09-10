@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { Type } from '@angular/core';
-import { provideDiscoveryHubApi } from '../core/api/providers';
+import { provideMockDiscoveryHubApi } from '../core/api/providers';
 import { AuditPage } from './audit/audit-page';
 import { CaseDetailPage } from './cases/case-detail-page';
 import { CasesPage } from './cases/cases-page';
@@ -16,11 +16,16 @@ import { SearchPage } from './search/search-page';
  * Smoke coverage: every route component must mount, resolve its data and render
  * without throwing. Catches template and wiring breakage that a type check
  * alone will not.
+ *
+ * Bound explicitly to the in-memory backend. Going through
+ * `provideDiscoveryHubApi()` would resolve to the HTTP clients, which have no
+ * server to talk to here, and the pages would render error bands that still
+ * satisfy a loose assertion.
  */
 describe('route components', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), provideDiscoveryHubApi()],
+      providers: [provideRouter([]), provideMockDiscoveryHubApi()],
     });
   });
 

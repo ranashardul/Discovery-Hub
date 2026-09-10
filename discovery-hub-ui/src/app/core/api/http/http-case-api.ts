@@ -9,6 +9,7 @@ import {
   CreateCaseRequest,
   EvidenceItem,
   LegalCase,
+  toCaseStatus,
 } from '../../models/case';
 import { Custodian } from '../../models/message';
 import { AddEvidenceRequest, CaseApi, CaseListQuery } from '../case-api';
@@ -182,7 +183,7 @@ export class HttpCaseApi extends CaseApi {
       description: matterMatch ? description.slice(matterMatch[0].length) : description,
       matterType: (matterMatch?.[1] as LegalCase['matterType']) ?? 'INVESTIGATION',
       owner: item.createdBy,
-      status: item.status as CaseStatus,
+      status: toCaseStatus(item.status),
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       closedAt: item.status === 'CLOSED' ? item.updatedAt : null,

@@ -3,7 +3,13 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, forkJoin, map, of, switchMap } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import { MockHoldApi } from '../../mock/mock-apis';
-import { DeletionAttemptResult, HoldScope, LegalHold, PlaceHoldRequest } from '../../models/hold';
+import {
+  DeletionAttemptResult,
+  HoldScope,
+  LegalHold,
+  PlaceHoldRequest,
+  toHoldStatus,
+} from '../../models/hold';
 import { CaseApi } from '../case-api';
 import { HoldApi } from '../hold-api';
 import { toApiError } from './http-support';
@@ -140,11 +146,6 @@ export class HttpHoldApi extends HoldApi {
       );
   }
 
-  /**
-   * The hold entity has no propagation state: a hold is ACTIVE or RELEASED the
-   * moment it is written, and projection onto messages happens asynchronously
-   * through Kafka. PROPAGATING and RELEASING therefore never appear.
-   */
   private toHold(hold: WireHold, caseName?: string): LegalHold {
     const criteria = hold.criteria ?? {};
     return {
@@ -152,7 +153,7 @@ export class HttpHoldApi extends HoldApi {
       caseId: hold.caseId,
       caseName: caseName ?? '',
       reason: hold.reason ?? hold.description ?? hold.name,
-      status: hold.status as LegalHold['status'],
+      status: toHoldStatus(hold.status),
       scope: {
         custodianIds: criteria.participants ?? [],
         after: criteria.dateFrom ?? null,
@@ -165,7 +166,6 @@ export class HttpHoldApi extends HoldApi {
       releasedAt: hold.releasedAt,
       releasedBy: hold.releasedBy,
       matchedMessageCount: hold.communicationCount,
-      estimatedScopeCount: hold.communicationCount,
     };
   }
 }

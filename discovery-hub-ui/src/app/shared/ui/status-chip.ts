@@ -38,16 +38,14 @@ export class StatusChip {
 
   protected readonly tone = computed(() => {
     switch (this.status()) {
+      case 'OPEN':
       case 'ACTIVE':
-      case 'UNDER_REVIEW':
       case 'RUNNING':
-      case 'PROPAGATING':
-      case 'RELEASING':
         return 'active';
-      case 'DRAFT':
       case 'QUEUED':
       case 'RELEASED':
       case 'CLOSED':
+      case 'ARCHIVED':
       case 'DISPOSED':
         return 'neutral';
       case 'FAILED':

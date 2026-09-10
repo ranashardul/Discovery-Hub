@@ -8,6 +8,7 @@ import {
   ExportJob,
   ExportManifest,
   VerificationReport,
+  toExportScope,
 } from '../../models/export';
 import { CaseApi } from '../case-api';
 import { ExportApi } from '../export-api';
@@ -172,7 +173,7 @@ export class HttpExportApi extends ExportApi {
       id: job.exportId,
       caseId: job.caseId,
       caseName: caseName ?? '',
-      scopeType: (job.scope as ExportJob['scopeType']) ?? 'CASE_EVIDENCE',
+      scopeType: toExportScope(job.scope),
       holdId: job.holdId,
       status: job.status as ExportJob['status'],
       requestedAt: job.createdAt,

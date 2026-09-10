@@ -47,18 +47,18 @@ describe('MockStore', () => {
 
   it('allows only the documented case transitions', () => {
     const created = newCase();
-    expect(created.status).toBe('DRAFT');
+    expect(created.status).toBe('OPEN');
 
-    expect(() => store.changeStatus(created.id, 'UNDER_REVIEW')).toThrow(/Invalid transition/);
-
-    expect(store.changeStatus(created.id, 'ACTIVE').status).toBe('ACTIVE');
-    expect(store.changeStatus(created.id, 'UNDER_REVIEW').status).toBe('UNDER_REVIEW');
     expect(store.changeStatus(created.id, 'CLOSED').status).toBe('CLOSED');
+    expect(store.changeStatus(created.id, 'OPEN').status).toBe('OPEN');
+    expect(store.changeStatus(created.id, 'ARCHIVED').status).toBe('ARCHIVED');
+
+    // ARCHIVED is terminal in the UI's transition map.
+    expect(() => store.changeStatus(created.id, 'OPEN')).toThrow(/Invalid transition/);
   });
 
   it('makes a closed case read-only', () => {
     const created = newCase();
-    store.changeStatus(created.id, 'ACTIVE');
     const messageId = store.search({ q: 'budget', size: 1 }).results[0].messageId;
     store.addEvidence(created.id, { messageIds: [messageId], source: 'MANUAL' });
     store.changeStatus(created.id, 'CLOSED');
@@ -70,7 +70,7 @@ describe('MockStore', () => {
 
   it('never adds the same message to a case twice', () => {
     const created = newCase();
-    store.changeStatus(created.id, 'ACTIVE');
+
     const messageId = store.search({ q: 'budget', size: 1 }).results[0].messageId;
 
     expect(store.addEvidence(created.id, { messageIds: [messageId], source: 'MANUAL' })).toHaveLength(1);
@@ -129,9 +129,8 @@ describe('MockStore', () => {
     expect(after.entries[0].sequence).toBeGreaterThan(0);
   });
 
-  it('reports a hold as propagating until the worker has stamped its scope', () => {
+  it('places a hold as ACTIVE over its resolved scope', () => {
     const created = newCase();
-    store.changeStatus(created.id, 'ACTIVE');
     const custodian = store.listCustodianDirectory()[0];
     store.addCustodian(created.id, custodian.id);
 
@@ -141,8 +140,9 @@ describe('MockStore', () => {
       scope: { custodianIds: [custodian.id], after: null, before: null, searchTerms: null },
     });
 
-    expect(hold.status).toBe('PROPAGATING');
-    expect(hold.estimatedScopeCount).toBeGreaterThan(0);
-    expect(hold.matchedMessageCount).toBe(0);
+    // case-hold-service writes a hold as ACTIVE in one transaction; there is
+    // no PROPAGATING state to observe.
+    expect(hold.status).toBe('ACTIVE');
+    expect(hold.matchedMessageCount).toBeGreaterThan(0);
   });
 });
