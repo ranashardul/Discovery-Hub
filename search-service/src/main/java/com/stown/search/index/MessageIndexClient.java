@@ -1,9 +1,11 @@
 package com.stown.search.index;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.Result;
 import co.elastic.clients.elasticsearch._types.SortOptions;
 import co.elastic.clients.elasticsearch._types.SortOrder;
+import co.elastic.clients.elasticsearch._types.aggregations.Aggregate;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.DeleteResponse;
 import co.elastic.clients.elasticsearch.core.GetResponse;
@@ -17,7 +19,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -31,6 +35,13 @@ public class MessageIndexClient {
 
     /** Elasticsearch default for {@code index.max_result_window}. */
     private static final int MAX_PAGE_SIZE = 10_000;
+
+    /**
+     * Stable tiebreaker for {@code search_after}. Must be a doc-values field:
+     * fielddata on {@code _id} is disallowed, and the analysed {@code sender}
+     * style fields would sort by token.
+     */
+    private static final String ID_SORT_FIELD = "messageId.keyword";
 
     private final ElasticsearchClient elasticsearchClient;
     private final SearchProperties properties;
@@ -192,6 +203,99 @@ public class MessageIndexClient {
 
     public void refresh() throws IOException {
         elasticsearchClient.indices().refresh(request -> request.index(indexName()));
+    }
+
+    /**
+     * Returns every message id matching the query, in a stable order.
+     *
+     * <p>Uses {@code search_after} rather than {@code from}/{@code size}
+     * paging. Deep paging past {@code index.max_result_window} (10,000 by
+     * default) is rejected outright, and even below that a shifting result set
+     * can repeat or skip documents between pages, which for "add every match
+     * to a case" would silently produce the wrong evidence set.
+     *
+     * <p>Sorts on {@code messageId.keyword}, not {@code _id}. Elasticsearch
+     * disallows fielddata access on {@code _id}, so sorting by it fails the
+     * whole request with {@code all shards failed}.
+     *
+     * <p>The caller supplies a hard cap: this exists to scope a case, not to
+     * export the corpus, and an unbounded scroll on a large archive is a way
+     * to exhaust the heap.
+     */
+    public List<String> searchIds(Query query, int cap, int pageSize) throws IOException {
+        ensureIndex();
+
+        List<String> ids = new ArrayList<>();
+        List<FieldValue> cursor = null;
+
+        while (ids.size() < cap) {
+            int batch = Math.min(pageSize, cap - ids.size());
+            final List<FieldValue> after = cursor;
+
+            SearchResponse<Void> response = elasticsearchClient.search(request -> {
+                request.index(indexName())
+                        .query(query)
+                        .size(batch)
+                        .sort(sort -> sort.field(field -> field
+                                .field(ID_SORT_FIELD)
+                                .order(SortOrder.Asc)))
+                        // The ids come from the hit metadata, so there is no
+                        // reason to ship _source over the wire.
+                        .source(source -> source.fetch(false));
+
+                if (after != null) {
+                    request.searchAfter(after);
+                }
+
+                return request;
+            }, Void.class);
+
+            List<Hit<Void>> hits = response.hits().hits();
+            if (hits.isEmpty()) {
+                break;
+            }
+
+            hits.stream().map(Hit::id).filter(Objects::nonNull).forEach(ids::add);
+
+            if (hits.size() < batch) {
+                break;
+            }
+
+            cursor = hits.getLast().sort();
+            if (cursor == null || cursor.isEmpty()) {
+                break;
+            }
+        }
+
+        return ids;
+    }
+
+    /**
+     * Distinct senders with a message count, most prolific first.
+     *
+     * <p>Aggregates on {@code sender.keyword}: a {@code terms} aggregation on
+     * the analysed {@code sender} field would bucket by token, so
+     * "alice@stown.com" would come back as three separate custodians.
+     */
+    public List<Map.Entry<String, Long>> aggregateSenders(int limit) throws IOException {
+        ensureIndex();
+
+        SearchResponse<Void> response = elasticsearchClient.search(request -> request
+                .index(indexName())
+                .size(0)
+                .aggregations("senders", aggregation -> aggregation
+                        .terms(terms -> terms.field("sender.keyword").size(limit))),
+                Void.class
+        );
+
+        Aggregate aggregate = response.aggregations().get("senders");
+        if (aggregate == null || !aggregate.isSterms()) {
+            return List.of();
+        }
+
+        return aggregate.sterms().buckets().array().stream()
+                .map(bucket -> Map.entry(bucket.key().stringValue(), bucket.docCount()))
+                .toList();
     }
 
     public SearchResponse<SearchDocument> search(

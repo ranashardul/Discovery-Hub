@@ -38,6 +38,19 @@ public class SearchProperties {
     /** Page size used when walking MongoDB during a full reindex. */
     private int reindexBatchSize = 500;
 
+    /**
+     * Hard cap on ids returned by {@code GET /api/search/ids}. Scoping a case
+     * to a result set is the use case; exporting the archive is not, and an
+     * unbounded scroll on a large corpus is a way to exhaust the heap.
+     */
+    private int maxResolvedIds = 10_000;
+
+    /** Page size used while walking matches with {@code search_after}. */
+    private int resolveIdsPageSize = 1_000;
+
+    /** Maximum distinct senders returned by {@code GET /api/search/custodians}. */
+    private int maxCustodians = 500;
+
     private int retryAttempts = 3;
     private long retryInitialIntervalMs = 1_000L;
     private double retryMultiplier = 2.0d;

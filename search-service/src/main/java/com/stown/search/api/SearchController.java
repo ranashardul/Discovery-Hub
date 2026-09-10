@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @Slf4j
 @RestController
 @RequestMapping("/api/search")
@@ -62,6 +64,58 @@ public class SearchController {
         SearchCriteria criteria = SearchCriteria.of(request, properties.getMaxPageSize());
 
         return ResponseEntity.ok(searchService.search(criteria));
+    }
+
+    /**
+     * Every message id matching the same filters {@code GET /api/search}
+     * accepts.
+     *
+     * <p>Scoping a case to a whole result set otherwise means paging the
+     * archive through the client, which is slow and produces an evidence set
+     * that matches no single query if the corpus changes midway.
+     */
+    @GetMapping("/ids")
+    public ResponseEntity<ResolvedIdsResponse> resolveIds(
+            @RequestParam(name = "q", required = false) String query,
+            @RequestParam(name = "communicationType", required = false) String communicationType,
+            @RequestParam(name = "sender", required = false) String sender,
+            @RequestParam(name = "recipient", required = false) String recipient,
+            @RequestParam(name = "threadId", required = false) String threadId,
+            @RequestParam(name = "dispositionStatus", required = false) String dispositionStatus,
+            @RequestParam(name = "holdId", required = false) String holdId,
+            @RequestParam(name = "onHold", required = false) Boolean onHold,
+            @RequestParam(name = "hasAttachments", required = false) Boolean hasAttachments,
+            @RequestParam(name = "after", required = false) String after,
+            @RequestParam(name = "before", required = false) String before
+    ) {
+        SearchRequest request = SearchRequest.builder()
+                .q(query)
+                .communicationType(communicationType)
+                .sender(sender)
+                .recipient(recipient)
+                .threadId(threadId)
+                .dispositionStatus(dispositionStatus)
+                .holdId(holdId)
+                .onHold(onHold)
+                .hasAttachments(hasAttachments)
+                .after(after)
+                .before(before)
+                .build();
+
+        SearchCriteria criteria = SearchCriteria.of(request, properties.getMaxPageSize());
+
+        return ResponseEntity.ok(searchService.resolveIds(criteria));
+    }
+
+    /**
+     * Distinct senders in the index with a message count.
+     *
+     * <p>No service models custodians, so the archive itself is the only
+     * source for who is in it.
+     */
+    @GetMapping("/custodians")
+    public ResponseEntity<List<CustodianResponse>> custodians() {
+        return ResponseEntity.ok(searchService.custodians());
     }
 
     @GetMapping("/messages/{messageId}")
