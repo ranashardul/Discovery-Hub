@@ -2,7 +2,6 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, map } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import { MockAuditApi } from '../../mock/mock-apis';
 import { AuditEntry, AuditPage, AuditQuery } from '../../models/audit';
 import { AuditApi } from '../audit-api';
 import { toApiError, toParams } from './http-support';
@@ -23,77 +22,74 @@ interface WireAuditEvent {
   receivedAt: string | null;
 }
 
+/** Wire shape of GET /api/audit/search. */
+interface WireAuditPage {
+  entries: WireAuditEvent[] | null;
+  total: number;
+  page: number;
+  size: number;
+}
+
 @Injectable()
 export class HttpAuditApi extends AuditApi {
   private readonly http = inject(HttpClient);
-  /** Entry lookup and actor list have no endpoint; see environment.mockBacked. */
-  private readonly fallback = inject(MockAuditApi);
 
   private readonly base = `${environment.api.exportAudit}/audit`;
 
   /**
-   * The service exposes two reads: everything for a case, or everything for a
-   * target id. There is no paging, no actor or action filter, and no date
-   * range, so the remaining narrowing happens here over the returned set.
-   *
-   * That is honest but not scalable — the whole case history crosses the wire
-   * on every query. It is the right shape only while volumes are small.
+   * Filtering, ordering and paging all happen in the service now. Previously
+   * an entire case history crossed the wire on every query and was narrowed in
+   * the browser, which does not hold for a store designed to grow without
+   * bound.
    */
   query(query: AuditQuery): Observable<AuditPage> {
-    // The bare collection endpoint requires a targetId, so without a case the
-    // only thing that can be asked for is a specific target.
-    const request = query.caseId
-      ? this.http.get<WireAuditEvent[]>(`${this.base}/cases/${encodeURIComponent(query.caseId)}`)
-      : this.http.get<WireAuditEvent[]>(this.base, {
-          params: toParams({ targetId: query.q }),
-        });
+    const page = query.page ?? 0;
+    const size = query.size ?? 25;
 
-    return request.pipe(
-      map((events) => {
-        let entries = events.map((event, index) => this.toEntry(event, index));
-
-        if (query.actor) {
-          entries = entries.filter((entry) => entry.actor === query.actor);
-        }
-        if (query.action) {
-          entries = entries.filter((entry) => entry.action === query.action);
-        }
-        if (query.targetType) {
-          entries = entries.filter((entry) => entry.targetType === query.targetType);
-        }
-        if (query.after) {
-          entries = entries.filter((entry) => entry.timestamp >= query.after!);
-        }
-        if (query.before) {
-          entries = entries.filter((entry) => entry.timestamp <= query.before!);
-        }
-
-        entries.sort((left, right) => right.timestamp.localeCompare(left.timestamp));
-
-        const page = query.page ?? 0;
-        const size = query.size ?? 25;
-        return {
-          entries: entries.slice(page * size, page * size + size),
-          total: entries.length,
+    return this.http
+      .get<WireAuditPage>(`${this.base}/search`, {
+        params: toParams({
+          caseId: query.caseId,
+          actor: query.actor,
+          action: query.action,
+          targetType: query.targetType,
+          // The free-text box is a target lookup; the service has no
+          // full-text index over the trail.
+          targetId: query.q,
+          from: query.after,
+          to: query.before,
           page,
           size,
-        } as AuditPage;
-      }),
-      catchError(toApiError),
-    );
+        }),
+      })
+      .pipe(
+        map((response) => ({
+          entries: (response.entries ?? []).map((event, index) =>
+            // Position within the page, offset by the page itself, so the
+            // numbering a reviewer sees is continuous while paging.
+            this.toEntry(event, page * size + index),
+          ),
+          total: response.total,
+          page: response.page,
+          size: response.size,
+        })),
+        catchError(toApiError),
+      );
   }
 
   getEntry(id: string): Observable<AuditEntry> {
-    return this.fallback.getEntry(id);
+    return this.http
+      .get<WireAuditEvent>(`${this.base}/${encodeURIComponent(id)}`)
+      .pipe(map((event) => this.toEntry(event, 0)), catchError(toApiError));
   }
 
   listActors(): Observable<string[]> {
-    return this.fallback.listActors();
+    return this.http.get<string[]>(`${this.base}/actors`).pipe(catchError(toApiError));
   }
 
   private toEntry(event: WireAuditEvent, index: number): AuditEntry {
     return {
-      id: event.id,
+      id: event.eventId ?? event.id,
       // The store has no sequence column; position stands in for ordering.
       sequence: index + 1,
       timestamp: event.timestamp,

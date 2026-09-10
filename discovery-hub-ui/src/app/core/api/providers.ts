@@ -25,10 +25,10 @@ import { SearchApi } from './search-api';
  * Binds the API contracts to an implementation.
  *
  * With `useMockBackend` false the app talks HTTP to the services. The mock
- * classes stay registered because the HTTP implementations delegate to them
- * for the capabilities no service exposes — saved searches, custodians, hold
- * scope preview, retention policy editing, the export manifest and audit
- * filtering. `environment.mockBacked` is the authoritative list.
+ * classes stay registered because `HttpCaseApi` still delegates to one: case
+ * custodians and single-item evidence removal have nowhere to be stored,
+ * because the case service models communications rather than people.
+ * `environment.mockBacked` is the authoritative list.
  *
  * No component imports a concrete implementation, so flipping the switch
  * changes nothing above this layer.

@@ -2,7 +2,6 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, forkJoin, map, of, switchMap } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import { MockHoldApi } from '../../mock/mock-apis';
 import {
   DeletionAttemptResult,
   HoldScope,
@@ -35,14 +34,17 @@ interface WireHold {
   communicationCount: number;
 }
 
+/** Wire shape of POST /api/v1/holds/preview. */
+interface WireScopePreview {
+  matchingCount: number;
+}
+
 const ACTOR = 'discovery-hub-ui';
 
 @Injectable()
 export class HttpHoldApi extends HoldApi {
   private readonly http = inject(HttpClient);
   private readonly cases = inject(CaseApi);
-  /** Scope preview has no backend; see environment.mockBacked. */
-  private readonly fallback = inject(MockHoldApi);
 
   private readonly base = environment.api.caseHold;
 
@@ -98,9 +100,23 @@ export class HttpHoldApi extends HoldApi {
       .pipe(map((hold) => this.toHold(hold)), catchError(toApiError));
   }
 
-  /** No endpoint counts what a scope would match before the hold is placed. */
+  /**
+   * Counts what the scope would cover before the hold is placed.
+   *
+   * The case service delegates this to the search index, which is also what
+   * confirms the hold afterwards, so the number shown here is the number the
+   * hold will report. A 503 when search is unreachable is deliberate on the
+   * service side: showing zero would read as "this rule matches nothing".
+   */
   previewScope(scope: HoldScope): Observable<number> {
-    return this.fallback.previewScope(scope);
+    return this.http
+      .post<WireScopePreview>(`${this.base}/holds/preview`, {
+        participants: scope.custodianIds ?? [],
+        communicationTypes: [],
+        dateFrom: scope.after,
+        dateTo: scope.before,
+      })
+      .pipe(map((response) => response.matchingCount), catchError(toApiError));
   }
 
   /**

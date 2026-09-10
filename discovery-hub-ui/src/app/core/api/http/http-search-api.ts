@@ -1,8 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, catchError, expand, forkJoin, map, of, reduce, switchMap } from 'rxjs';
+import { Observable, catchError, forkJoin, map, of, switchMap } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import { MockSearchApi } from '../../mock/mock-apis';
 import { Message } from '../../models/message';
 import {
   SavedSearch,
@@ -11,6 +10,8 @@ import {
   SearchResultItem,
   SearchStats,
 } from '../../models/search';
+import { ApiError } from '../api-error';
+import { CaseApi } from '../case-api';
 import { SearchApi } from '../search-api';
 import { highlightToSafeMarkup, highlightToPlainText, toApiError, toParams } from './http-support';
 
@@ -60,14 +61,33 @@ interface WireSearchDocument {
   dispositionStatus: string | null;
 }
 
-/** Page size used when walking every match for "add all results to case". */
-const RESOLVE_PAGE_SIZE = 100;
+/** Wire shape of GET /api/search/ids. */
+interface WireResolvedIds {
+  total: number;
+  truncated: boolean;
+  messageIds: string[] | null;
+}
+
+/** Wire shape of a saved search, owned by the case service. */
+interface WireSavedSearch {
+  savedSearchId: string;
+  caseId: string;
+  name: string;
+  criteria: Record<string, unknown> | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+const ACTOR = 'discovery-hub-ui';
+
+/** Matches the search service's default max-page-size. */
+const THREAD_PAGE_SIZE = 100;
 
 @Injectable()
 export class HttpSearchApi extends SearchApi {
   private readonly http = inject(HttpClient);
-  /** Saved searches have no backend; see environment.mockBacked. */
-  private readonly fallback = inject(MockSearchApi);
+  /** Saved searches are nested under a case, so resolving one needs the list. */
+  private readonly cases = inject(CaseApi);
 
   private readonly base = environment.api.search;
 
@@ -95,47 +115,130 @@ export class HttpSearchApi extends SearchApi {
    * text to match on.
    */
   getThread(threadId: string): Observable<Message[]> {
-    return this.searchAll({ q: '', threadId, sort: 'oldest' }).pipe(
-      switchMap((items) => {
-        if (items.length === 0) {
+    // One page, because a conversation is not paged in the UI and the service
+    // caps the page size anyway. A thread longer than that cap is truncated
+    // rather than partially ordered.
+    return this.search({ q: '', threadId, sort: 'oldest', size: THREAD_PAGE_SIZE }).pipe(
+      switchMap((response) => {
+        if (response.results.length === 0) {
           return of([]);
         }
         // A hit omits the body, so each document is fetched in full. Ingestion
         // has a batch endpoint, but its projection carries no hold state, and
         // showing a held message as unheld in the conversation view would be
         // worse than the extra round-trips. Threads are small.
-        return forkJoin(items.map((item) => this.getMessage(item.messageId)));
+        return forkJoin(response.results.map((item) => this.getMessage(item.messageId)));
       }),
     );
   }
 
+  /**
+   * One request rather than paging the archive through the browser.
+   *
+   * The service caps how many ids it will return and says when it had to
+   * truncate. That is surfaced as an error instead of quietly scoping a case
+   * to the first N matches — an incomplete evidence set that nobody knows is
+   * incomplete is worse than a refusal.
+   */
   resolveAllIds(criteria: SearchCriteria): Observable<string[]> {
-    return this.searchAll(criteria).pipe(map((items) => items.map((item) => item.messageId)));
+    return this.http
+      .get<WireResolvedIds>(`${this.base}/ids`, { params: this.toQuery(criteria) })
+      .pipe(
+        map((response) => {
+          if (response.truncated) {
+            throw new ApiError(
+              400,
+              `This search matches more than ${response.total} messages, which is the most ` +
+                'that can be added at once. Narrow it and try again.',
+            );
+          }
+          return response.messageIds ?? [];
+        }),
+        catchError(toApiError),
+      );
   }
 
+  /**
+   * Saved searches are owned by the case service, not this one: a saved search
+   * is a case artefact and is removed with the case. The contract groups it
+   * with search because that is where a reviewer uses it.
+   */
   listSavedSearches(caseId: string): Observable<SavedSearch[]> {
-    return this.fallback.listSavedSearches(caseId);
+    return this.http
+      .get<WireSavedSearch[]>(`${this.savedSearchBase(caseId)}`)
+      .pipe(map((items) => items.map((item) => this.toSavedSearch(item))), catchError(toApiError));
   }
 
   saveSearch(caseId: string, name: string, criteria: SearchCriteria): Observable<SavedSearch> {
-    return this.fallback.saveSearch(caseId, name, criteria);
+    return this.http
+      .post<WireSavedSearch>(this.savedSearchBase(caseId), {
+        name,
+        criteria: this.toStoredCriteria(criteria),
+        createdBy: ACTOR,
+      })
+      .pipe(map((item) => this.toSavedSearch(item)), catchError(toApiError));
   }
 
+  /**
+   * The delete route is nested under the case, so the id alone is not enough.
+   * The saved search carries its case id, so it is looked up first rather than
+   * changing a contract the components depend on.
+   */
   deleteSavedSearch(id: string): Observable<void> {
-    return this.fallback.deleteSavedSearch(id);
+    return this.savedSearchCaseId(id).pipe(
+      switchMap((caseId) =>
+        this.http.delete<void>(`${this.savedSearchBase(caseId)}/${encodeURIComponent(id)}`),
+      ),
+      catchError(toApiError),
+    );
   }
 
-  /** Pages through every match, following `total` rather than guessing. */
-  private searchAll(criteria: SearchCriteria): Observable<SearchResultItem[]> {
-    const page = (from: number) =>
-      this.search({ ...criteria, from, size: RESOLVE_PAGE_SIZE });
+  private savedSearchBase(caseId: string): string {
+    return `${environment.api.caseHold}/cases/${encodeURIComponent(caseId)}/saved-searches`;
+  }
 
-    return page(0).pipe(
-      expand((response) => {
-        const next = response.from + response.results.length;
-        return next >= response.total || response.results.length === 0 ? [] : page(next);
+  private savedSearchCaseId(id: string): Observable<string> {
+    return this.cases.listCases().pipe(
+      switchMap((cases) =>
+        forkJoin(
+          cases.length === 0
+            ? [of<WireSavedSearch[]>([])]
+            : cases.map((item) =>
+                this.http
+                  .get<WireSavedSearch[]>(this.savedSearchBase(item.id))
+                  .pipe(catchError(() => of<WireSavedSearch[]>([]))),
+              ),
+        ),
+      ),
+      map((perCase) => {
+        const match = perCase.flat().find((item) => item.savedSearchId === id);
+        if (!match) {
+          throw new ApiError(404, 'That saved search no longer exists');
+        }
+        return match.caseId;
       }),
-      reduce((all: SearchResultItem[], response) => all.concat(response.results), []),
+    );
+  }
+
+  private toSavedSearch(item: WireSavedSearch): SavedSearch {
+    return {
+      id: item.savedSearchId,
+      caseId: item.caseId,
+      name: item.name,
+      criteria: { q: '', ...(item.criteria ?? {}) } as SearchCriteria,
+      createdAt: item.createdAt,
+      // The service stores the criteria, not a run history.
+      lastRunAt: null,
+      lastRunTotal: null,
+    };
+  }
+
+  /** Drops empty values so a stored criteria set has no meaningless keys. */
+  private toStoredCriteria(criteria: SearchCriteria): Record<string, unknown> {
+    return Object.fromEntries(
+      Object.entries(criteria).filter(
+        ([, value]) => value !== null && value !== undefined && value !== '',
+      ),
     );
   }
 

@@ -33,24 +33,21 @@ export const environment = {
    * Capabilities with no backend endpoint, served from the in-memory store
    * even when useMockBackend is false.
    *
-   * Every one of these is a feature the prototype invented ahead of the
-   * services. They are listed rather than silently faked so a screen can say
-   * so, and so the list shrinks visibly as the services grow.
+   * They are listed rather than silently faked so a screen can say so, and so
+   * the list shrinks visibly as the services grow. Saved searches, the
+   * custodian directory, hold scope preview, retention policies, the
+   * disposition trigger, the export manifest and audit filtering have all
+   * since been implemented and are gone from this list.
+   *
+   * What is left is not a missing endpoint but a missing concept: the case
+   * service models *communications* on a case, never people. Attaching a
+   * custodian to a matter, and removing a single evidence item, have nowhere
+   * to be stored. Both need a domain decision rather than a controller.
    */
   mockBacked: {
-    /** No saved-search API exists on any service. */
-    savedSearches: true,
-    /** case-hold models communications, not custodians. */
-    custodians: true,
-    /** No endpoint to count what a hold scope would match before placing it. */
-    holdScopePreview: true,
-    /** Retention periods are configuration, not an API. */
-    retentionPolicies: true,
-    /** The disposition job is scheduled; there is no manual trigger endpoint. */
-    dispositionTrigger: true,
-    /** No manifest endpoint; only download URL and verify. */
-    exportManifest: true,
-    /** /api/audit filters by case or target only, with no paging or actor list. */
-    auditFiltering: true,
+    /** No case-to-custodian relation exists in the case-hold schema. */
+    caseCustodians: true,
+    /** No endpoint removes one communication from a case. */
+    removeEvidence: true,
   },
 };
