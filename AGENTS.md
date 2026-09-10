@@ -77,9 +77,15 @@ Both services have a Maven wrapper. There may be no `mvn` on the PATH, so
 always prefer `./mvnw`.
 
 ```bash
-cd search-service    && ./mvnw test        # 33 unit tests, no containers
+cd search-service    && ./mvnw test
 cd ingestion-service && ./mvnw test
+cd case-hold-service && ./mvnw test
+cd export-audit-service && mvn test        # no wrapper in this module
+cd discovery-hub-ui  && npm test && npm run build
 ```
+
+**`export-audit-service` has no Maven wrapper.** Every other module does. Use
+`mvn` there, or run it from another module's wrapper.
 
 Integration tests are tagged `integration` and excluded from the default
 surefire run. Clearing `excluded.test.groups` is required, and Docker must be
@@ -247,10 +253,38 @@ reverting the commit is not sufficient.
   `POST /api/search/reindex` is unauthenticated and expensive, so it should not
   be exposed publicly as-is.
 - **Contracts are duplicated, not shared.** `MessageDocument`,
-  `AttachmentMetadata` and `MessageIngestedEvent` exist as independent copies
-  in both services. A field renamed in `ingestion-service` produces **no
-  compile error** in `search-service` — it silently reads `null`. Diff these
-  classes by hand whenever the ingestion model changes.
+  `AttachmentMetadata`, `MessageIngestedEvent`, `MessageDisposedEvent` and
+  `AuditEvent` exist as independent copies per service, bound by field name
+  over Kafka and MongoDB. A field renamed in `ingestion-service` produces **no
+  compile error** anywhere else — the other side silently reads `null` and the
+  failure surfaces later as missing data. Run
+  `infrastructure/check-contract-drift.sh` whenever the model changes; it
+  compares every copy against the ingestion one.
+- **Two UI capabilities have no backend, and it is a modelling gap rather than
+  a missing controller.** `environment.mockBacked` lists them: attaching a
+  custodian to a case, and removing a single evidence item. The case service
+  models *communications* on a case, never people, so there is nowhere to store
+  a case-to-custodian relation. Both need a domain decision first.
+- **Multiple hold participants are OR'd by the search filter**, matching what
+  `LegalHoldProjectionService.criteriaFilter` does in ingestion. If one changes,
+  the hold scope preview stops agreeing with the hold it previewed.
+
+## Verification scripts
+
+```bash
+cd infrastructure
+
+# End-to-end across all five services, through the gateway: ingest -> search
+# -> case -> hold -> blocked delete -> export -> verify -> audit. 41 checks.
+./smoke-test.sh
+
+# Field-level drift between the contracts each service copies. Exits 1 on an
+# unexpected difference; deliberate omissions are listed with a reason in
+# EXPECTED_ABSENT inside the script.
+./check-contract-drift.sh
+```
+
+Run both before opening a PR. There is no CI, so nothing else will.
 
 ## Useful checks
 
