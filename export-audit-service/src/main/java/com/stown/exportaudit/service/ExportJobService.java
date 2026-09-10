@@ -3,6 +3,7 @@ package com.stown.exportaudit.service;
 import com.stown.exportaudit.config.ExportProperties;
 import com.stown.exportaudit.domain.AuditAction;
 import com.stown.exportaudit.domain.ExportJobDocument;
+import com.stown.exportaudit.domain.ExportManifest;
 import com.stown.exportaudit.domain.ExportScope;
 import com.stown.exportaudit.domain.ExportStatus;
 import com.stown.exportaudit.domain.MessageDocument;
@@ -259,6 +260,38 @@ public class ExportJobService {
      * package itself, and compares each against the recorded value. Any
      * tampering is detected and reported per item.
      */
+    /**
+     * The manifest of a completed package: every item with its checksum.
+     *
+     * <p>Read from inside the package rather than from a database row, because
+     * the manifest is the evidence inventory and a copy kept outside the
+     * package could be altered independently of the bytes it describes.
+     */
+    public ExportManifest manifest(String exportId) {
+        ExportJobDocument job = exportJobRepository.findById(exportId)
+                .orElseThrow(() -> new ExportJobNotFoundException(exportId));
+
+        if (job.getStatus() != ExportStatus.COMPLETED || job.getS3Key() == null) {
+            throw new IllegalStateException(
+                    "Cannot read a manifest for an export in status=" + job.getStatus()
+            );
+        }
+
+        byte[] content = storageService.readAttachment(
+                storageService.getExportBucket(),
+                job.getS3Key()
+        );
+
+        try {
+            return packageVerifier.readManifest(content);
+        } catch (Exception exception) {
+            throw new ExportProcessingException(
+                    "Failed to read the export manifest: " + exception.getMessage(),
+                    exception
+            );
+        }
+    }
+
     public PackageVerification verify(String exportId) {
         ExportJobDocument job = exportJobRepository.findById(exportId)
                 .orElseThrow(() -> new ExportJobNotFoundException(exportId));
