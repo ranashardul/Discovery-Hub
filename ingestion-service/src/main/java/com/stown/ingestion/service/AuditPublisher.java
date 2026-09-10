@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -42,9 +43,11 @@ public class AuditPublisher {
     public static final String ACTION_DELETION_BLOCKED = "DELETION_BLOCKED";
     public static final String ACTION_MESSAGE_DELETED = "MESSAGE_DELETED";
     public static final String ACTION_DISPOSITION_RUN = "DISPOSITION_RUN_COMPLETED";
+    public static final String ACTION_RETENTION_CHANGED = "RETENTION_POLICY_CHANGED";
 
     private static final String TARGET_MESSAGE = "MESSAGE";
     private static final String TARGET_SYSTEM = "SYSTEM";
+    private static final String TARGET_POLICY = "RETENTION_POLICY";
 
     /** Nothing authenticates to this service, so there is no user to name. */
     private static final String ACTOR = "ingestion-service";
@@ -96,6 +99,38 @@ public class AuditPublisher {
                         "summary", "Message deleted and removed from the index",
                         "reason", reason == null ? "" : reason,
                         "attachmentsPurged", attachmentsPurged
+                ))
+                .build());
+    }
+
+    /**
+     * Records a retention period change, with what it was and what it became.
+     *
+     * <p>Shortening a period destroys archived material on the next
+     * disposition run, so the change itself is a chain-of-custody event: the
+     * question "why was this deleted" is answered by the policy that was in
+     * force, and that has to be recoverable after the fact.
+     */
+    public void retentionPolicyChanged(
+            String communicationType,
+            Duration previous,
+            Duration updated,
+            String actor
+    ) {
+        publish(AuditEvent.builder()
+                .eventId(eventId(ACTION_RETENTION_CHANGED, communicationType))
+                .action(ACTION_RETENTION_CHANGED)
+                .targetType(TARGET_POLICY)
+                .targetId(communicationType)
+                .actor(actor == null ? ACTOR : actor)
+                .status("COMPLETED")
+                .timestamp(Instant.now())
+                .before(Map.of("retentionPeriod", previous == null ? "" : previous.toString()))
+                .after(Map.of("retentionPeriod", updated.toString()))
+                .details(Map.of(
+                        "summary", "Retention for %s changed from %s to %s"
+                                .formatted(communicationType, previous, updated),
+                        "shortened", previous != null && updated.compareTo(previous) < 0
                 ))
                 .build());
     }

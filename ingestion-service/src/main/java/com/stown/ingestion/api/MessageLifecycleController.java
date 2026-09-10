@@ -5,6 +5,8 @@ import com.stown.ingestion.repository.DispositionRunRepository;
 import com.stown.ingestion.repository.MessageRepository;
 import com.stown.ingestion.service.DispositionService;
 import com.stown.ingestion.service.MessageNotFoundException;
+import com.stown.ingestion.service.RetentionPolicy;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
@@ -12,10 +14,13 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +43,7 @@ public class MessageLifecycleController {
     private final MessageRepository messageRepository;
     private final DispositionRunRepository runRepository;
     private final DispositionService dispositionService;
+    private final RetentionPolicy retentionPolicy;
 
     /** Retention countdown and hold state for one message. */
     @GetMapping("/messages/{messageId}/retention")
@@ -65,6 +71,50 @@ public class MessageLifecycleController {
                 "reason", audit.getReason(),
                 "attachmentsPurged", audit.getS3Keys() == null ? 0 : audit.getS3Keys().size(),
                 "disposedAt", audit.getCompletedAt()
+        ));
+    }
+
+    /** Effective retention period per communication type, plus the default. */
+    @GetMapping("/retention/policies")
+    public ResponseEntity<List<RetentionPolicyResponse>> retentionPolicies() {
+        List<RetentionPolicyResponse> policies = retentionPolicy.effectivePeriods().entrySet().stream()
+                .map(entry -> new RetentionPolicyResponse(
+                        entry.getKey(),
+                        entry.getValue().toString(),
+                        entry.getValue().toMinutes()
+                ))
+                .toList();
+
+        return ResponseEntity.ok(policies);
+    }
+
+    /**
+     * Sets the retention period for a communication type.
+     *
+     * <p><strong>This decides when data is destroyed.</strong> Shortening a
+     * period means the next disposition run deletes archived material that was
+     * previously in scope, so the {@code minPeriod} floor is enforced here as
+     * well as at startup — the floor exists to keep a demo value away from
+     * real data, and an HTTP endpoint is exactly how one would get there.
+     * Messages under legal hold are still never deleted, whatever this says.
+     */
+    @PutMapping("/retention/policies/{communicationType}")
+    public ResponseEntity<RetentionPolicyResponse> updateRetentionPolicy(
+            @PathVariable String communicationType,
+            @Valid @RequestBody UpdateRetentionPolicyRequest request
+    ) {
+        Duration updated = retentionPolicy.setPeriod(
+                communicationType,
+                Duration.ofMinutes(request.retentionMinutes()),
+                request.updatedBy() == null || request.updatedBy().isBlank()
+                        ? "unknown"
+                        : request.updatedBy()
+        );
+
+        return ResponseEntity.ok(new RetentionPolicyResponse(
+                communicationType.toUpperCase(java.util.Locale.ROOT),
+                updated.toString(),
+                updated.toMinutes()
         ));
     }
 
