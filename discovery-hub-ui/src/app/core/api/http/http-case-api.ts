@@ -24,7 +24,17 @@ interface WireCase {
   createdAt: string;
   updatedAt: string;
   communicationCount: number;
+  custodianCount: number;
   activeHoldCount: number;
+}
+
+interface WireCaseCustodian {
+  custodianId: string;
+  displayName: string;
+  email: string;
+  department: string | null;
+  addedAt: string;
+  addedBy: string;
 }
 
 interface WireCommunicationItem {
@@ -64,7 +74,7 @@ const ACTOR = 'discovery-hub-ui';
 @Injectable()
 export class HttpCaseApi extends CaseApi {
   private readonly http = inject(HttpClient);
-  /** Case custodians and evidence removal have no backend; see environment.mockBacked. */
+  /** Removing a single evidence item has no backend; see environment.mockBacked. */
   private readonly fallback = inject(MockCaseApi);
 
   private readonly base = `${environment.api.caseHold}/cases`;
@@ -159,15 +169,50 @@ export class HttpCaseApi extends CaseApi {
   }
 
   listCustodians(caseId: string): Observable<CaseCustodian[]> {
-    return this.fallback.listCustodians(caseId);
+    return this.http
+      .get<WireCaseCustodian[]>(`${this.base}/${encodeURIComponent(caseId)}/custodians`)
+      .pipe(
+        map((custodians) =>
+          custodians.map((custodian) => ({
+            caseId,
+            custodianId: custodian.custodianId,
+            displayName: custodian.displayName,
+            email: custodian.email,
+            department: custodian.department ?? '',
+            addedAt: custodian.addedAt,
+            addedBy: custodian.addedBy,
+          })),
+        ),
+        catchError(toApiError),
+      );
   }
 
   addCustodian(caseId: string, custodianId: string): Observable<CaseCustodian> {
-    return this.fallback.addCustodian(caseId, custodianId);
+    return this.http
+      .post<WireCaseCustodian>(`${this.base}/${encodeURIComponent(caseId)}/custodians`, {
+        custodianId,
+        addedBy: ACTOR,
+      })
+      .pipe(
+        map((custodian) => ({
+          caseId,
+          custodianId: custodian.custodianId,
+          displayName: custodian.displayName,
+          email: custodian.email,
+          department: custodian.department ?? '',
+          addedAt: custodian.addedAt,
+          addedBy: custodian.addedBy,
+        })),
+        catchError(toApiError),
+      );
   }
 
   removeCustodian(caseId: string, custodianId: string): Observable<void> {
-    return this.fallback.removeCustodian(caseId, custodianId);
+    return this.http
+      .delete<void>(
+        `${this.base}/${encodeURIComponent(caseId)}/custodians/${encodeURIComponent(custodianId)}`,
+      )
+      .pipe(catchError(toApiError));
   }
 
   /**
@@ -217,7 +262,7 @@ export class HttpCaseApi extends CaseApi {
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       closedAt: item.status === 'CLOSED' ? item.updatedAt : null,
-      custodianCount: 0,
+      custodianCount: item.custodianCount,
       evidenceCount: item.communicationCount,
       activeHoldCount: item.activeHoldCount,
       heldMessageCount: 0,
