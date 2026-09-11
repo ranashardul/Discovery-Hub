@@ -1,7 +1,7 @@
 package com.stown.exportaudit.service;
 
 import com.stown.exportaudit.domain.AttachmentMetadata;
-import com.stown.exportaudit.domain.ExportManifest;
+import com.stown.exportaudit.domain.ExportJobDocument;
 import com.stown.exportaudit.domain.ExportScope;
 import com.stown.exportaudit.domain.ManifestItem;
 import com.stown.exportaudit.domain.MessageDocument;
@@ -16,6 +16,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -32,6 +33,9 @@ class PackageBuilderTest {
     @Mock
     private ChecksumService checksumService;
 
+    @Mock
+    private CaseAuditReportBuilder auditReportBuilder;
+
     private PackageBuilder packageBuilder;
 
     @BeforeEach
@@ -40,12 +44,17 @@ class PackageBuilderTest {
         packageBuilder = new PackageBuilder(
                 storageService,
                 checksumService,
-                new ObjectMapper()
+                new ObjectMapper(),
+                auditReportBuilder
         );
 
         // Return a deterministic-ish hash: use the content length so calls differ.
         when(checksumService.sha256Hex(any(byte[].class))).thenAnswer(
                 invocation -> "sha-" + ((byte[]) invocation.getArgument(0)).length
+        );
+
+        when(auditReportBuilder.build(any(), any(), any())).thenReturn(
+                new CaseAuditReport("CASE AUDIT REPORT\n", Map.of("caseId", "case-1"))
         );
     }
 
@@ -80,18 +89,11 @@ class PackageBuilderTest {
                 "messages/msg-1/attachments/att-1/report.pdf"))
                 .thenReturn(attachmentContent);
 
-        PackageBuildResult result = packageBuilder.build(
-                "export-1",
-                "case-1",
-                ExportScope.CASE,
-                "investigator@example.com",
-                List.of(message)
-        );
+        PackageBuildResult result = packageBuilder.build(job(ExportScope.CASE), List.of(message));
 
         assertThat(result.packageBytes()).isNotEmpty();
         assertThat(result.manifest().messageCount()).isEqualTo(1);
         assertThat(result.manifest().attachmentCount()).isEqualTo(1);
-        assertThat(result.manifest().items()).hasSize(2);
         assertThat(result.manifest().caseId()).isEqualTo("case-1");
         assertThat(result.manifest().scope()).isEqualTo("CASE");
         assertThat(result.packageSha256()).startsWith("sha-");
@@ -116,6 +118,49 @@ class PackageBuilderTest {
         assertThat(attachmentItem.attachmentId()).isEqualTo("att-1");
     }
 
+    /**
+     * The report is what makes the package self-describing evidence, so it
+     * ships in both a readable and a parseable form and is itself checksummed
+     * in the manifest.
+     */
+    @Test
+    void includesTheAuditReportAndChecksumFile() throws IOException {
+        MessageDocument message = MessageDocument.builder()
+                .id("msg-1")
+                .communicationType("EMAIL")
+                .sender("alice@example.com")
+                .messageTimestamp(Instant.parse("2026-09-01T10:00:00Z"))
+                .build();
+
+        PackageBuildResult result = packageBuilder.build(job(ExportScope.CASE), List.of(message));
+
+        List<String> entryNames = listZipEntries(result.packageBytes());
+        assertThat(entryNames).contains("audit-report.txt", "audit-report.json", "checksums.sha256");
+
+        assertThat(result.manifest().items())
+                .filteredOn(item -> "AUDIT_REPORT".equals(item.type()))
+                .extracting(ManifestItem::path)
+                .containsExactlyInAnyOrder("audit-report.txt", "audit-report.json");
+    }
+
+    /** Every manifest entry must appear in the sha256sum file, and only those. */
+    @Test
+    void checksumFileListsEveryManifestItem() throws IOException {
+        MessageDocument message = MessageDocument.builder()
+                .id("msg-1")
+                .communicationType("EMAIL")
+                .messageTimestamp(Instant.parse("2026-09-01T10:00:00Z"))
+                .build();
+
+        PackageBuildResult result = packageBuilder.build(job(ExportScope.CASE), List.of(message));
+
+        String checksums = new String(readZipEntry(result.packageBytes(), "checksums.sha256"));
+
+        for (ManifestItem item : result.manifest().items()) {
+            assertThat(checksums).contains(item.sha256() + "  " + item.path());
+        }
+    }
+
     @Test
     void handlesMessageWithoutAttachments() throws IOException {
         MessageDocument message = MessageDocument.builder()
@@ -130,17 +175,16 @@ class PackageBuilderTest {
                 .build();
 
         PackageBuildResult result = packageBuilder.build(
-                "export-2",
-                "case-2",
-                ExportScope.LEGAL_HOLD,
-                "compliance@example.com",
+                job(ExportScope.LEGAL_HOLD),
                 List.of(message)
         );
 
         assertThat(result.manifest().messageCount()).isEqualTo(1);
-        assertThat(result.manifest().attachmentCount()).isEqualTo(0);
-        assertThat(result.manifest().items()).hasSize(1);
+        assertThat(result.manifest().attachmentCount()).isZero();
         assertThat(result.manifest().scope()).isEqualTo("LEGAL_HOLD");
+        assertThat(result.manifest().items())
+                .filteredOn(item -> "ATTACHMENT".equals(item.type()))
+                .isEmpty();
 
         List<String> entryNames = listZipEntries(result.packageBytes());
         assertThat(entryNames).contains("messages/msg-2.txt");
@@ -149,20 +193,33 @@ class PackageBuilderTest {
 
     @Test
     void emptyEvidenceProducesValidPackageWithZeroCounts() throws IOException {
-        PackageBuildResult result = packageBuilder.build(
-                "export-3",
-                "case-3",
-                ExportScope.CASE,
-                "investigator@example.com",
-                List.of()
-        );
+        PackageBuildResult result = packageBuilder.build(job(ExportScope.CASE), List.of());
 
         assertThat(result.manifest().messageCount()).isZero();
         assertThat(result.manifest().attachmentCount()).isZero();
-        assertThat(result.manifest().items()).isEmpty();
+        assertThat(result.manifest().items())
+                .filteredOn(item -> "MESSAGE".equals(item.type()))
+                .isEmpty();
 
+        // The report and the integrity files still ship, so an empty result is
+        // auditable rather than an unexplained empty archive.
         List<String> entryNames = listZipEntries(result.packageBytes());
-        assertThat(entryNames).containsExactly("manifest.json");
+        assertThat(entryNames).containsExactlyInAnyOrder(
+                "audit-report.txt",
+                "audit-report.json",
+                "checksums.sha256",
+                "manifest.json"
+        );
+    }
+
+    private ExportJobDocument job(ExportScope scope) {
+        return ExportJobDocument.builder()
+                .exportId("export-1")
+                .caseId("case-1")
+                .scope(scope)
+                .requestedBy("investigator@example.com")
+                .createdAt(Instant.parse("2026-09-01T09:00:00Z"))
+                .build();
     }
 
     private List<String> listZipEntries(byte[] zipBytes) throws IOException {
@@ -174,5 +231,17 @@ class PackageBuilderTest {
             }
         }
         return names;
+    }
+
+    private byte[] readZipEntry(byte[] zipBytes, String name) throws IOException {
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.getName().equals(name)) {
+                    return zis.readAllBytes();
+                }
+            }
+        }
+        throw new AssertionError("entry not found in package: " + name);
     }
 }

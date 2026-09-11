@@ -360,13 +360,7 @@ public class ExportJobService {
         List<MessageDocument> messages = evidenceProvider.findEvidence(query);
 
         try {
-            return packageBuilder.build(
-                    job.getExportId(),
-                    job.getCaseId(),
-                    job.getScope(),
-                    job.getRequestedBy(),
-                    messages
-            );
+            return packageBuilder.build(job, messages);
         } catch (Exception exception) {
             throw new ExportProcessingException(
                     "Failed to build export package: " + exception.getMessage(),

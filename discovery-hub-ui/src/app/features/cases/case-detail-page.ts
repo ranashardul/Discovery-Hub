@@ -348,7 +348,7 @@ export class CaseDetailPage {
       .subscribe((searches) => this.savedSearches.set(searches));
   }
 
-  private refreshAudit(): void {
+  refreshAudit(): void {
     this.auditApi
       .query({ caseId: this.id(), size: 50 })
       .pipe(catchError(() => of({ entries: [] as AuditEntry[], total: 0, page: 0, size: 0 })))

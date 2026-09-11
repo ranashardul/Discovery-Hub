@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -45,6 +46,41 @@ public class CaseHoldClient {
 
         log.info("Case & Hold returned {} communications for caseId={}", ids.size(), caseId);
         return ids;
+    }
+
+    /**
+     * Case metadata for the audit report. Best-effort: the report is
+     * supplementary to the evidence, so an unreachable Case &amp; Hold service
+     * degrades the report rather than failing the export.
+     */
+    public CaseDetail getCase(String caseId) {
+        try {
+            return caseHoldRestClient.get()
+                    .uri("/api/v1/cases/{caseId}", caseId)
+                    .retrieve()
+                    .body(CaseDetail.class);
+        } catch (Exception exception) {
+            log.warn("Could not read case {} for the audit report: {}", caseId, exception.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Legal holds placed on a case, for the audit report. Best-effort for the
+     * same reason as {@link #getCase(String)}.
+     */
+    public List<HoldDetail> getHoldsForCase(String caseId) {
+        try {
+            HoldDetail[] holds = caseHoldRestClient.get()
+                    .uri("/api/v1/cases/{caseId}/holds", caseId)
+                    .retrieve()
+                    .body(HoldDetail[].class);
+
+            return holds == null ? List.of() : List.of(holds);
+        } catch (Exception exception) {
+            log.warn("Could not read holds for case {}: {}", caseId, exception.getMessage());
+            return List.of();
+        }
     }
 
     /**
@@ -96,6 +132,43 @@ public class CaseHoldClient {
             String communicationId,
             String communicationType,
             String addedAt
+    ) {
+    }
+
+    /**
+     * Case metadata as the Case &amp; Hold service reports it. Mirrors that
+     * service's {@code CaseResponse}; fields it does not model (priority,
+     * matter type, closure actor) are deliberately absent rather than faked.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CaseDetail(
+            String caseId,
+            String caseName,
+            String description,
+            String status,
+            String createdBy,
+            Instant createdAt,
+            Instant updatedAt,
+            long communicationCount,
+            long activeHoldCount
+    ) {
+    }
+
+    /** A legal hold on a case, mirroring the Case &amp; Hold {@code HoldResponse}. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record HoldDetail(
+            String holdId,
+            String caseId,
+            String name,
+            String description,
+            String reason,
+            String status,
+            String scope,
+            String createdBy,
+            Instant createdAt,
+            String releasedBy,
+            Instant releasedAt,
+            long communicationCount
     ) {
     }
 }

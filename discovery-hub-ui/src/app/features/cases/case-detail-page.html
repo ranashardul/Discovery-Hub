@@ -109,7 +109,7 @@
         >
           Exports<span class="tab__count">{{ exports().length }}</span>
         </button>
-        <button type="button" class="tab" [class.tab--active]="tab() === 'audit'" (click)="tab.set('audit')">
+        <button type="button" class="tab" [class.tab--active]="tab() === 'audit'" (click)="tab.set('audit'); refreshAudit()">
           Chain of custody<span class="tab__count">{{ auditEntries().length }}</span>
         </button>
       </div>
@@ -457,9 +457,12 @@
             Append-only record of everything that happened on this case. Entries can never be
             edited or deleted.
           </p>
-          <a class="btn btn--sm" routerLink="/audit" [queryParams]="{ caseId: id() }">
-            Open in audit trail
-          </a>
+          <div class="inline">
+            <button type="button" class="btn btn--sm" (click)="refreshAudit()">Refresh</button>
+            <a class="btn btn--sm" routerLink="/audit" [queryParams]="{ caseId: id() }">
+              Open in audit trail
+            </a>
+          </div>
         </div>
         <div class="card__body card__body--flush">
           <div class="table-wrap">
