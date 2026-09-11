@@ -12,6 +12,7 @@ public record CaseResponse(
         Instant createdAt,
         Instant updatedAt,
         long communicationCount,
+        long custodianCount,
         long activeHoldCount
 ) {
 }

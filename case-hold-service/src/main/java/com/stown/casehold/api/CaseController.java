@@ -1,5 +1,7 @@
 package com.stown.casehold.api;
 
+import com.stown.casehold.api.AddCaseCustodianRequest;
+import com.stown.casehold.api.CaseCustodianResponse;
 import com.stown.casehold.service.CaseService;
 import com.stown.casehold.service.SavedSearchService;
 import jakarta.validation.Valid;
@@ -89,5 +91,29 @@ public class CaseController {
             @PathVariable UUID caseId
     ) {
         return ResponseEntity.ok(caseService.listCommunications(caseId));
+    }
+
+    @GetMapping("/{caseId}/custodians")
+    public ResponseEntity<List<CaseCustodianResponse>> listCustodians(
+            @PathVariable UUID caseId
+    ) {
+        return ResponseEntity.ok(caseService.listCustodians(caseId));
+    }
+
+    @PostMapping("/{caseId}/custodians")
+    public ResponseEntity<CaseCustodianResponse> addCustodian(
+            @PathVariable UUID caseId,
+            @Valid @RequestBody AddCaseCustodianRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(caseService.addCustodian(caseId, request));
+    }
+
+    @DeleteMapping("/{caseId}/custodians/{custodianId}")
+    public ResponseEntity<Void> removeCustodian(
+            @PathVariable UUID caseId,
+            @PathVariable String custodianId
+    ) {
+        caseService.removeCustodian(caseId, custodianId);
+        return ResponseEntity.noContent().build();
     }
 }
