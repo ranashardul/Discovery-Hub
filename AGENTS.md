@@ -136,7 +136,31 @@ rather than a typo.
 
 **Containers do not rebuild when you switch branches or edit code.** If the API
 behaves as though your change never happened, rebuild:
-`docker compose up -d --build search-service`.
+`docker compose up -d --build search-service`. This is the first thing to check
+when a screen contradicts the source — the served bundle is a build artefact,
+and the UI container will happily serve last week's template against today's
+API.
+
+**`MONGODB_URI` and the S3 buckets may point at shared, remote infrastructure.**
+A `.env` copied from a teammate can aim every service at a MongoDB Atlas
+cluster and a real S3 bucket rather than at the local containers. When that is
+the case, `stown-mongodb` and `stown-minio` keep running and stay nearly
+empty, so `docker exec stown-mongodb mongosh` reports a handful of documents
+while the APIs serve thousands. Check where a service actually points before
+concluding data is missing:
+
+```bash
+docker exec stown-ingestion-service printenv MONGODB_URI S3_ENDPOINT S3_BUCKET
+```
+
+**Attachment objects live in whichever bucket was configured at ingestion
+time,** and the bucket name is stored on the message. Point `S3_ENDPOINT` at
+MinIO after a corpus was ingested against real S3 and every export fails with
+`The specified bucket does not exist` (HTTP 404) naming a bucket that exists in
+AWS but not in MinIO. `AWS_REGION` must also match the bucket, or S3 answers
+`PermanentRedirect`. For a real bucket: empty `S3_ENDPOINT`, empty
+`S3_PUBLIC_BASE_URL`, `S3_PATH_STYLE_ACCESS=false`, and
+`S3_SOURCE_BUCKET` equal to the bucket the attachments were written to.
 
 **Do not run a service from your IDE while its container is also running.** Both
 bind the same port, and both join Kafka consumer group `search-service`, so
@@ -268,6 +292,44 @@ reverting the commit is not sufficient.
 - **Multiple hold participants are OR'd by the search filter**, matching what
   `LegalHoldProjectionService.criteriaFilter` does in ingestion. If one changes,
   the hold scope preview stops agreeing with the hold it previewed.
+
+## Demonstrating retention and disposition
+
+Use the **Retention demo** screen (`/demo`). It posts one message to the normal
+ingestion endpoint with `retentionMinutes` between 1 and 5, so it travels
+API → Kafka → worker → MongoDB → S3 like any other, then polls until the
+document and its attachment objects are gone from both stores.
+
+Per-message retention is the safe lever. Shortening a *type's* period — through
+`RETENTION_EMAIL=1m` or the policy API — applies to every message of that type
+already archived, so the next disposition run deletes the whole corpus. A
+per-message period cannot affect anything ingested before it. It is bounded by
+`RETENTION_MESSAGE_OVERRIDE_MAX` (5 minutes) and gated by
+`RETENTION_MESSAGE_OVERRIDE_ENABLED`, which is deliberately *not* wired to
+`ALLOW_SHORT_RETENTION`.
+
+The disposition job must be running, and often enough to watch:
+
+```bash
+DISPOSITION_ENABLED=true
+DISPOSITION_INTERVAL_MS=15000
+PURGE_SWEEP_INTERVAL_MS=15000
+```
+
+Before enabling it against a populated archive, confirm nothing is already
+past retention — the job deletes on its first pass:
+
+```bash
+# expect 0
+docker run --rm --network host mongo:7 mongosh "$MONGODB_URI" --quiet \
+  --eval 'db.messages.countDocuments({retentionUntil: {$lte: new Date()}})'
+```
+
+`GET /api/ingestion/messages/{id}/storage` reports whether the document and
+each attachment object still exist, and keeps working after disposition by
+reading the object keys from the `disposition_audit` record. Deleting the
+document while orphaning the binaries in S3 is otherwise indistinguishable
+from a complete purge.
 
 ## Verification scripts
 
