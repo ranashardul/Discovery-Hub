@@ -159,7 +159,6 @@ public class CaseService {
             AddCaseCommunicationsRequest request
     ) {
         CaseEntity entity = requireCase(caseId);
-        ensureNotArchived(entity);
 
         // De-duplicate against existing associations and within the request itself.
         List<CommunicationRef> requested = request.communications();
@@ -267,20 +266,12 @@ public class CaseService {
                 .orElseThrow(() -> new CaseNotFoundException(caseId.toString()));
     }
 
-    private void ensureNotArchived(CaseEntity entity) {
-        if (entity.getStatus() == CaseStatus.ARCHIVED) {
-            throw new IllegalHoldStateException(
-                    "Cannot modify an archived case: " + entity.getId()
-            );
-        }
-    }
-
     private CaseStatus parseStatus(String status) {
         try {
             return CaseStatus.valueOf(status.toUpperCase());
         } catch (IllegalArgumentException exception) {
             throw new IllegalArgumentException(
-                    "Invalid case status: " + status + ". Allowed: OPEN, CLOSED, ARCHIVED"
+                    "Invalid case status: " + status + ". Allowed: OPEN, CLOSED"
             );
         }
     }
