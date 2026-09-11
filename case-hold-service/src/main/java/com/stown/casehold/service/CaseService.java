@@ -164,7 +164,14 @@ public class CaseService {
     @Transactional
     public void removeCommunication(UUID caseId, String communicationId) {
         CaseEntity entity = requireCase(caseId);
-        assertMutable(entity);
+
+        // Evidence is frozen while the case is under an active legal hold.
+        // The message itself is never touched here either way.
+        if (holdRepository.countByCaseIdAndStatus(caseId, HoldStatus.ACTIVE) > 0) {
+            throw new IllegalHoldStateException(
+                    "Cannot remove evidence while the case is under an active legal hold"
+            );
+        }
 
         List<CaseCommunicationEntity> references =
                 caseCommunicationRepository.findByCaseIdOrderByAddedAtAsc(caseId).stream()
