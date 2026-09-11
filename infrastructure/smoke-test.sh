@@ -126,9 +126,16 @@ expect 202 "message accepted for ingestion"
 
 step "Search: the message becomes searchable"
 
+# Resolved by thread, not by free text. threadId is mapped as a keyword and
+# carries the run id, so the filter matches this run's message and nothing
+# else. The text query it replaces was analysed into tokens and OR'd, so
+# "smoke" matched every message left behind by a previous run: the id picked
+# up could belong to another run, and the script would then place a hold on
+# one message and attempt to delete a different one - reporting that the
+# platform had failed to protect held evidence when it had not.
 MESSAGE_ID=""
 for elapsed in $(seq 1 "$INDEX_TIMEOUT_SECONDS"); do
-  request GET "/api/search?q=$RUN_ID&size=1"
+  request GET "/api/search?threadId=thread-$RUN_ID&size=1"
   MESSAGE_ID=$(json "$REPLY_BODY" "(d.get('results') or [{}])[0].get('messageId') or ''")
   if [ -n "$MESSAGE_ID" ]; then
     pass "indexed and searchable after ${elapsed}s"
@@ -145,11 +152,14 @@ expect 200 "chronological sort works"
 request GET "/api/search?sender=smoke.sender@stown.com&size=1"
 expect 200 "a filter-only search works"
 
-request GET "/api/search/ids?q=$RUN_ID"
+# Also by thread, so "exactly one match" stays a meaningful assertion however
+# many times this script has been run against the archive.
+request GET "/api/search/ids?threadId=thread-$RUN_ID"
 ids_total=$(json "$REPLY_BODY" "d.get('total')")
-[ "$ids_total" = "1" ] \
+resolved=$(json "$REPLY_BODY" "'$MESSAGE_ID' in (d.get('messageIds') or [])")
+{ [ "$ids_total" = "1" ] && [ "$resolved" = "True" ]; } \
   && pass "bulk id resolution returns the match" \
-  || fail "bulk id resolution returned total=$ids_total" "$REPLY_BODY"
+  || fail "bulk id resolution returned total=$ids_total resolved=$resolved" "$REPLY_BODY"
 
 request GET "/api/search/custodians"
 has_sender=$(json "$REPLY_BODY" "any(c.get('name') == 'smoke.sender@stown.com' for c in d)")

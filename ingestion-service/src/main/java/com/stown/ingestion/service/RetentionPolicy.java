@@ -213,4 +213,62 @@ public class RetentionPolicy {
     public Instant expiryFor(String communicationType, Instant createdAt) {
         return createdAt.plus(resolve(communicationType));
     }
+
+    /**
+     * Absolute expiry honouring a per-message override, when one is supplied
+     * and permitted.
+     *
+     * <p>Unlike {@link #setPeriod}, this cannot affect a message that is
+     * already stored: it only decides the expiry of the one being written. A
+     * retention demo therefore runs against a populated archive without
+     * putting the corpus at risk, which shortening the type's period would.
+     *
+     * @param requestedMinutes minutes requested for this message, or null to
+     *                         use the configured policy
+     */
+    public Instant expiryFor(String communicationType, Instant createdAt, Integer requestedMinutes) {
+        Duration override = messageOverride(requestedMinutes);
+        return override != null ? createdAt.plus(override) : expiryFor(communicationType, createdAt);
+    }
+
+    /**
+     * Validates a per-message retention request.
+     *
+     * <p>Called on the API path so a bad value is a 400 naming the field
+     * rather than a message that quietly outlives its demo, and again on the
+     * worker path because a replayed event can outlive the configuration that
+     * accepted it.
+     *
+     * @return the period to apply, or null when there is no usable override
+     * @throws IllegalArgumentException when an override is asked for but not
+     *         permitted, or is longer than the configured maximum
+     */
+    public Duration messageOverride(Integer requestedMinutes) {
+        if (requestedMinutes == null) {
+            return null;
+        }
+
+        if (!properties.isMessageOverrideEnabled()) {
+            throw new IllegalArgumentException(
+                    "Per-message retention is disabled;"
+                            + " set app.retention.message-override-enabled=true to permit it"
+            );
+        }
+
+        if (requestedMinutes < 1) {
+            throw new IllegalArgumentException("Per-message retention must be at least 1 minute");
+        }
+
+        Duration requested = Duration.ofMinutes(requestedMinutes);
+        Duration max = properties.getMessageOverrideMax();
+
+        if (requested.compareTo(max) > 0) {
+            throw new IllegalArgumentException(
+                    "Per-message retention of %s exceeds the maximum of %s"
+                            .formatted(requested, max)
+            );
+        }
+
+        return requested;
+    }
 }

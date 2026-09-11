@@ -141,8 +141,10 @@ public class IngestionWorker {
                 .createdAt(now)
                 // Retention is resolved per communication type and stored, so
                 // the policy applied to this message stays auditable even if
-                // configuration changes later.
-                .retentionUntil(retentionPolicy.expiryFor(event.getCommunicationType(), now))
+                // configuration changes later. A per-message period on the
+                // request wins, which is how a disposition demo expires one
+                // message without shortening the period for its whole type.
+                .retentionUntil(retentionUntil(event, now))
                 .holdIds(List.of())
                 .holdCount(0)
                 .dispositionStatus(DispositionStatus.ACTIVE)
@@ -151,6 +153,35 @@ public class IngestionWorker {
                 .build();
 
         return messageRepository.insert(message);
+    }
+
+    /**
+     * Expiry for the message being written.
+     *
+     * <p>The override is re-validated here rather than trusted from the
+     * event. Kafka retains an accepted event, so a replay — or a topic
+     * consumed after {@code message-override-enabled} was turned off — would
+     * otherwise apply a minutes-long retention that the current
+     * configuration forbids. An unusable value falls back to the policy
+     * instead of failing the message: refusing to archive a communication is
+     * worse than retaining it for longer than asked.
+     */
+    private Instant retentionUntil(IngestionRequestedEvent event, Instant now) {
+        try {
+            return retentionPolicy.expiryFor(
+                    event.getCommunicationType(),
+                    now,
+                    event.getRetentionMinutes()
+            );
+        } catch (IllegalArgumentException exception) {
+            log.warn(
+                    "Ignoring per-message retention requestId={} requested={}min reason={}",
+                    event.getRequestId(),
+                    event.getRetentionMinutes(),
+                    exception.getMessage()
+            );
+            return retentionPolicy.expiryFor(event.getCommunicationType(), now);
+        }
     }
 
     private Optional<MessageDocument> externalLookup(String externalMessageId) {

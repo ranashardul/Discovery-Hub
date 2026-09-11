@@ -3,6 +3,7 @@ import { provideRouter } from '@angular/router';
 import { provideMockDiscoveryHubApi } from '../../core/api/providers';
 import { LegalCase } from '../../core/models/case';
 import { LegalHold } from '../../core/models/hold';
+import { MockStore } from '../../core/mock/mock-store';
 import { PlaceHoldDialog } from './place-hold-dialog';
 
 /**
@@ -31,12 +32,43 @@ describe('PlaceHoldDialog', () => {
     return fixture;
   }
 
-  it('offers custodians from the archive directory, not the case', async () => {
+  it('offers the whole archive directory when no case is chosen yet', async () => {
     const fixture = open();
     await settle(fixture);
 
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelectorAll('.check input[type="checkbox"]').length).toBeGreaterThan(0);
+  });
+
+  /**
+   * A hold is scoped by custodian, and the only custodians that can be in
+   * scope for a matter are the people on its evidence. Offering the whole
+   * archive invites a hold over someone with no connection to the case, which
+   * is over-preservation and the reviewer cannot tell by looking.
+   */
+  it('offers only the participants of the case, once a case is known', async () => {
+    const store = TestBed.inject(MockStore);
+    const seeded = store
+      .listCases({})
+      .find((item) => store.listEvidence(item.id).length > 0)!;
+    expect(seeded).toBeTruthy();
+
+    const evidence = store.listEvidence(seeded.id);
+
+    const participants = new Set(
+      evidence.flatMap((item) => [item.sender, ...item.recipients]).filter(Boolean),
+    );
+    const directory = store.listCustodianDirectory();
+    // Otherwise the assertion below would pass without scoping anything.
+    expect(participants.size).toBeLessThan(directory.length);
+
+    const fixture = open(seeded);
+    await settle(fixture);
+
+    const offered = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('.check input[type="checkbox"]'),
+    );
+    expect(offered.length).toBe(participants.size);
   });
 
   it('asks which case when none is supplied, and offers only open ones', async () => {

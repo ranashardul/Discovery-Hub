@@ -268,6 +268,72 @@ class RetentionPolicyTest {
         return repository;
     }
 
+    /**
+     * The lever a retention demo pulls. It has to be separate from
+     * {@link RetentionPolicy#setPeriod}, because shortening a type's period
+     * makes every stored message of that type a deletion candidate, while a
+     * per-message period can only affect the message being written.
+     */
+    @Test
+    void acceptsAPerMessageRetentionWithinTheConfiguredMaximum() {
+        RetentionPolicy policy = policy(properties(Map.of("EMAIL", Duration.ofDays(2555))));
+
+        assertThat(policy.messageOverride(1)).isEqualTo(Duration.ofMinutes(1));
+        assertThat(policy.messageOverride(5)).isEqualTo(Duration.ofMinutes(5));
+    }
+
+    @Test
+    void treatsNoPerMessageRetentionAsNoOverride() {
+        RetentionPolicy policy = policy(properties(Map.of("EMAIL", Duration.ofDays(2555))));
+
+        assertThat(policy.messageOverride(null)).isNull();
+    }
+
+    @Test
+    void refusesAPerMessageRetentionLongerThanTheMaximum() {
+        RetentionProperties properties = properties(Map.of("EMAIL", Duration.ofDays(2555)));
+        properties.setMessageOverrideMax(Duration.ofMinutes(5));
+
+        assertThatThrownBy(() -> policy(properties).messageOverride(6))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exceeds the maximum");
+    }
+
+    @Test
+    void refusesAPerMessageRetentionWhenTheFeatureIsDisabled() {
+        RetentionProperties properties = properties(Map.of("EMAIL", Duration.ofDays(2555)));
+        properties.setMessageOverrideEnabled(false);
+
+        assertThatThrownBy(() -> policy(properties).messageOverride(2))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("disabled");
+    }
+
+    @Test
+    void expiresAMessageWithItsOwnPeriodRatherThanTheTypePeriod() {
+        RetentionPolicy policy = policy(properties(Map.of("EMAIL", Duration.ofDays(2555))));
+
+        assertThat(policy.expiryFor("EMAIL", NOW, 3)).isEqualTo(NOW.plus(Duration.ofMinutes(3)));
+        // Without one, nothing about the type's period changes.
+        assertThat(policy.expiryFor("EMAIL", NOW, null)).isEqualTo(NOW.plus(Duration.ofDays(2555)));
+    }
+
+    /**
+     * The floor exists to stop a demo period reaching real data through the
+     * policy API. A per-message period is bounded by its own maximum instead,
+     * so the two guards must not be wired to the same flag.
+     */
+    @Test
+    void doesNotRequireTheShortRetentionFlagForAPerMessagePeriod() {
+        RetentionProperties properties = properties(Map.of("EMAIL", Duration.ofDays(2555)));
+        properties.setAllowShortRetention(false);
+        properties.setMinPeriod(Duration.ofHours(24));
+
+        assertThat(policy(properties).messageOverride(2)).isEqualTo(Duration.ofMinutes(2));
+        assertThatThrownBy(() -> policy(properties).setPeriod("EMAIL", Duration.ofMinutes(2), "demo"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     private RetentionPolicy policy(RetentionProperties properties) {
         return new RetentionPolicy(properties, overrides(), auditPublisher);
     }

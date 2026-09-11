@@ -1,13 +1,19 @@
 import { Injectable, inject } from '@angular/core';
-import { Observable, defer, delay, of } from 'rxjs';
+import { Observable, defer, delay, of, throwError } from 'rxjs';
 import { ApiError } from '../api/api-error';
 import { AuditApi } from '../api/audit-api';
 import { AddEvidenceRequest, CaseApi, CaseListQuery } from '../api/case-api';
+import { DemoApi } from '../api/demo-api';
 import { ExportApi } from '../api/export-api';
 import { HoldApi } from '../api/hold-api';
 import { PlatformApi } from '../api/platform-api';
 import { SearchApi } from '../api/search-api';
 import { AuditEntry, AuditPage, AuditQuery } from '../models/audit';
+import {
+  DemoIngestAcceptance,
+  DemoRetentionStatus,
+  DemoStorageProof,
+} from '../models/demo';
 import {
   CaseCustodian,
   CaseStatus,
@@ -325,5 +331,49 @@ export class MockPlatformApi extends PlatformApi {
     return remote(this.store, 'ingestion', 'Ingestion & archival service', 600, () =>
       this.store.runDisposition('MANUAL'),
     );
+  }
+}
+
+/**
+ * Refuses, with a reason.
+ *
+ * A retention demo is a claim about the real pipeline: a message travelling
+ * API → Kafka → worker → MongoDB → S3, and binaries actually leaving the
+ * bucket when its period expires. Simulating that in the browser would
+ * demonstrate nothing except that the simulation works, and a screen showing
+ * a fake purge as though it were real is worse than one that says it needs
+ * the services running.
+ *
+ * Registered so offline mode still resolves the contract and the route
+ * mounts, rather than failing injection.
+ */
+@Injectable()
+export class MockDemoApi extends DemoApi {
+  private static unavailable<T>(): Observable<T> {
+    return throwError(
+      () =>
+        new ApiError(
+          503,
+          'The retention demo runs against the real services — it needs ingestion, ' +
+            'Kafka and S3 to prove a disposition actually happened. Start the stack ' +
+            'and set useMockBackend to false.',
+        ),
+    );
+  }
+
+  override ingest(): Observable<DemoIngestAcceptance> {
+    return MockDemoApi.unavailable();
+  }
+
+  override resolveMessageId(): Observable<string | null> {
+    return MockDemoApi.unavailable();
+  }
+
+  override retentionStatus(): Observable<DemoRetentionStatus | null> {
+    return MockDemoApi.unavailable();
+  }
+
+  override storageProof(): Observable<DemoStorageProof> {
+    return MockDemoApi.unavailable();
   }
 }

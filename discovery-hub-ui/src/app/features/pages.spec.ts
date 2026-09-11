@@ -9,6 +9,7 @@ import { DashboardPage } from './dashboard/dashboard-page';
 import { ExportsPage } from './exports/exports-page';
 import { HoldsPage } from './holds/holds-page';
 import { MessageDetailPage } from './messages/message-detail-page';
+import { RetentionDemoPage } from './demo/retention-demo-page';
 import { RetentionPage } from './retention/retention-page';
 import { SearchPage } from './search/search-page';
 
@@ -43,6 +44,7 @@ describe('route components', () => {
     ['holds', HoldsPage],
     ['exports', ExportsPage],
     ['retention', RetentionPage],
+    ['retention demo', RetentionDemoPage],
     ['audit', AuditPage],
   ];
 

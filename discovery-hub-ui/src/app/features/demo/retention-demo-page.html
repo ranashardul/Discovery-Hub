@@ -1,0 +1,246 @@
+<div class="page">
+  <div class="page__head">
+    <div>
+      <h1 class="page__title">Retention &amp; disposition demo</h1>
+      <p class="page__subtitle">
+        Pushes one message through the real pipeline — ingestion API, Kafka, the worker, MongoDB
+        and S3 — with a retention period of a few minutes, then watches the scheduled disposition
+        job delete it from both stores.
+      </p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom: 1rem">
+    <div class="card__body">
+      <p class="card__hint" style="margin: 0">
+        The period applies to <strong>this message only</strong>. Shortening the period for
+        <code>EMAIL</code> would expire every email already archived, so the next run would take
+        the corpus with it; a per-message period cannot affect anything ingested before it.
+        Capped at {{ maxRetentionMinutes }} minutes by the service.
+      </p>
+    </div>
+  </div>
+
+  @if (error()) {
+    <div style="margin-bottom: 1rem">
+      <app-error-band title="Demo unavailable" [message]="error()!" />
+    </div>
+  }
+
+  <div class="grid grid--halves">
+    <!-- ------------------------------------------------ the message -->
+    <form class="card" [formGroup]="form" (ngSubmit)="submit()">
+      <div class="card__head">
+        <h2 class="card__title">1 · The message</h2>
+      </div>
+      <div class="card__body stack">
+        <div class="form-grid">
+          <label class="field">
+            <span class="field__label">Communication type</span>
+            <select formControlName="communicationType">
+              @for (type of types; track type) {
+                <option [value]="type">{{ type }}</option>
+              }
+            </select>
+            <span class="field__hint">Decides which policy it would otherwise inherit.</span>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Retention</span>
+            <select formControlName="retentionMinutes">
+              @for (minutes of retentionChoices; track minutes) {
+                <option [value]="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</option>
+              }
+            </select>
+            <span class="field__hint">Counted from the moment the worker stores it.</span>
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="field__label">Sender</span>
+          <input type="email" formControlName="sender" />
+          @if (form.controls.sender.touched && form.controls.sender.invalid) {
+            <span class="field__error">A valid sender address is required.</span>
+          }
+        </label>
+
+        <label class="field">
+          <span class="field__label">Recipients</span>
+          <input type="text" formControlName="recipients" />
+          <span class="field__hint">Separate several with a comma or a space.</span>
+        </label>
+
+        <label class="field">
+          <span class="field__label">Subject</span>
+          <input type="text" formControlName="subject" />
+        </label>
+
+        <label class="field">
+          <span class="field__label">Body</span>
+          <textarea formControlName="body" rows="5"></textarea>
+        </label>
+
+        <label class="field">
+          <span class="field__label">Thread ID</span>
+          <input type="text" formControlName="threadId" />
+          <span class="field__hint">Optional. Groups the message into a conversation.</span>
+        </label>
+
+        <div class="field">
+          <span class="field__label">Attachment</span>
+          <span class="field__hint">
+            Uploaded to S3 by the ingestion API, and purged from it when the message is disposed.
+          </span>
+          <input type="file" (change)="onFileSelected($event)" />
+          @if (attachment(); as file) {
+            <p class="small" style="margin: 0.4rem 0 0">
+              <span class="mono">{{ file.filename }}</span>
+              · {{ file.sizeBytes | number }} bytes
+              · {{ file.contentType }}
+              <button type="button" class="btn btn--sm btn--ghost" (click)="clearAttachment()">
+                Remove
+              </button>
+            </p>
+          }
+        </div>
+      </div>
+      <div class="card__body inline" style="border-top: 1px solid var(--color-border)">
+        <button type="submit" class="btn btn--primary" [disabled]="busy()">
+          Ingest with {{ form.getRawValue().retentionMinutes }}-minute retention
+        </button>
+        <button type="button" class="btn" (click)="reset()" [disabled]="busy()">Clear</button>
+      </div>
+    </form>
+
+    <!-- ------------------------------------------------ the lifecycle -->
+    <section class="card">
+      <div class="card__head">
+        <div>
+          <h2 class="card__title">2 · The lifecycle</h2>
+          <p class="card__hint">Polled from the services, not simulated here.</p>
+        </div>
+        <app-status-chip [status]="stage()" />
+      </div>
+
+      <div class="card__body">
+        @if (stage() === 'DRAFT') {
+          <app-empty
+            title="Nothing ingested yet"
+            hint="Fill in the message and choose a retention period."
+          />
+        } @else {
+          <dl class="kv">
+            <dt>Request</dt>
+            <dd class="mono small">{{ requestId() ?? '—' }}</dd>
+
+            <dt>Message</dt>
+            <dd class="mono small">
+              @if (messageId()) {
+                {{ messageId() }}
+              } @else {
+                <app-loading message="Waiting for the worker to assign an id…" />
+              }
+            </dd>
+
+            @if (status(); as state) {
+              <dt>Retention until</dt>
+              <dd>{{ state.retentionUntil | date: 'dd MMM yyyy HH:mm:ss' }}</dd>
+
+              <dt>Time remaining</dt>
+              <dd>
+                @if (state.retentionExpired) {
+                  <strong>Expired</strong> — awaiting the next disposition run
+                } @else {
+                  {{ secondsRemaining() }}s
+                }
+              </dd>
+
+              <dt>Legal hold</dt>
+              <dd>
+                @if (state.held) {
+                  <strong>{{ state.holdCount }} hold(s)</strong> — disposition will skip it
+                } @else {
+                  None
+                }
+              </dd>
+
+              <dt>Disposition status</dt>
+              <dd>{{ state.dispositionStatus }}</dd>
+            }
+
+            @if (proof(); as storage) {
+              <dt>MongoDB document</dt>
+              <dd>
+                @if (storage.messagePresent) {
+                  Present
+                } @else {
+                  <strong>Deleted</strong>
+                }
+              </dd>
+
+              <dt>S3 objects</dt>
+              <dd>
+                @if (attachmentsPurged(); as counts) {
+                  @if (counts.total === 0) {
+                    None — the message had no attachment
+                  } @else {
+                    {{ counts.total - counts.remaining }} of {{ counts.total }} purged
+                    <span class="muted small">(bucket {{ storage.bucket }})</span>
+                  }
+                }
+                <ul class="small mono" style="margin: 0.3rem 0 0; padding-left: 1rem">
+                  @for (object of storage.objects; track object.key) {
+                    <li>
+                      {{ object.key }} —
+                      @if (object.present) {
+                        present
+                      } @else {
+                        purged
+                      }
+                    </li>
+                  }
+                </ul>
+              </dd>
+
+              <dt>Keys read from</dt>
+              <dd class="small">
+                @if (storage.source === 'DISPOSITION_AUDIT') {
+                  The append-only disposition audit, written before the document was removed — which
+                  is how the binaries stay traceable after it is gone.
+                } @else if (storage.source === 'MESSAGE') {
+                  The stored message.
+                } @else {
+                  Neither store has a record of this message.
+                }
+              </dd>
+            }
+
+            @if (disposedAt(); as disposed) {
+              <dt>Disposed at</dt>
+              <dd>{{ disposed | date: 'dd MMM yyyy HH:mm:ss' }}</dd>
+            }
+          </dl>
+
+          @if (stage() === 'DISPOSED') {
+            <p class="card__hint" style="margin-top: 0.8rem">
+              The document and every attachment object are gone. The disposition run that removed
+              them is recorded on the Retention screen, and the audit trail keeps the record.
+            </p>
+          }
+        }
+      </div>
+
+      @if (stage() === 'EXPIRED' || stage() === 'STORED') {
+        <div class="card__body inline" style="border-top: 1px solid var(--color-border)">
+          <button type="button" class="btn btn--sm" (click)="disposeNow()" [disabled]="busy()">
+            Run disposition now
+          </button>
+          <span class="card__hint">
+            The job is on a timer, so an expired message can wait most of another interval. This
+            triggers the same pass, and still refuses anything under hold.
+          </span>
+        </div>
+      }
+    </section>
+  </div>
+</div>
