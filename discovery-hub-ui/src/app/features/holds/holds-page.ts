@@ -131,11 +131,39 @@ export class HoldsPage {
     }
   }
 
+  /**
+   * The exact scope of a hold, as search criteria.
+   *
+   * The link used to pass `q: searchTerms || 'the'`, because search demanded
+   * query text. A hold is usually scoped by custodians and dates with no
+   * terms at all, so "the" was an invented word standing in for "everything":
+   * it quietly dropped every held message that does not contain it, and the
+   * count on this row never matched the results the link opened.
+   */
+  protected heldLinkParams(hold: LegalHold): Record<string, string | string[]> {
+    const params: Record<string, string | string[]> = { onHold: 'true' };
+
+    if (hold.scope.searchTerms) {
+      params['q'] = hold.scope.searchTerms;
+    }
+    if (hold.scope.custodianIds.length > 0) {
+      params['participant'] = hold.scope.custodianIds;
+    }
+    if (hold.scope.after) {
+      params['after'] = hold.scope.after;
+    }
+    if (hold.scope.before) {
+      params['before'] = hold.scope.before;
+    }
+
+    return params;
+  }
+
   /** Picks a message that is genuinely on hold, so the test has a subject. */
   protected async pickHeldMessage(): Promise<void> {
     try {
       const response = await firstValueFrom(
-        this.searchApi.search({ q: 'the', onHold: true, size: 1, sort: 'newest' }),
+        this.searchApi.search({ q: '', onHold: true, size: 1, sort: 'newest' }),
       );
       const hit = response.results[0];
       if (!hit) {

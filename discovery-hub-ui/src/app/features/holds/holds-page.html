@@ -145,7 +145,7 @@
                     <a
                       class="btn btn--sm"
                       routerLink="/search"
-                      [queryParams]="{ q: hold.scope.searchTerms || 'the', onHold: 'true' }"
+                      [queryParams]="heldLinkParams(hold)"
                     >
                       View held
                     </a>
