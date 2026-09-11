@@ -224,7 +224,7 @@
           @if (custodians().length === 0) {
             <app-empty
               title="No custodians attached"
-              hint="A hold must be scoped by custodian, so attach at least one."
+              hint="Attaching a custodian records them on the matter; a hold is scoped from the archive directory and does not require it."
             />
           } @else {
             <div class="table-wrap">
@@ -278,7 +278,7 @@
           <button
             type="button"
             class="btn btn--sm btn--primary"
-            [disabled]="readOnly() || custodians().length === 0"
+            [disabled]="readOnly() || directory().length === 0"
             (click)="openHoldModal()"
           >
             Place hold
@@ -535,7 +535,7 @@
 @if (holdModalOpen()) {
   <app-modal
     title="Place a legal hold"
-    subtitle="Scope by custodian, date range and optionally search terms."
+    subtitle="Scope by custodian and date range. Everything in scope is frozen until released."
     (dismissed)="holdModalOpen.set(false)"
   >
     <form [formGroup]="holdForm" class="stack">
@@ -549,18 +549,31 @@
 
       <div class="field">
         <span class="field__label">Custodians in scope</span>
-        <div class="stack--sm" style="display: grid; gap: 0.3rem">
-          @for (link of custodians(); track link.custodianId) {
+        <span class="field__hint">
+          Matched against the sender and recipients of every message. Selecting more than one
+          holds anything involving any of them.
+        </span>
+        <div
+          class="stack--sm"
+          style="display: grid; gap: 0.3rem; max-height: 14rem; overflow-y: auto"
+        >
+          @for (custodian of directory(); track custodian.id) {
             <label class="check">
               <input
                 type="checkbox"
-                [checked]="holdIncludes(link.custodianId)"
-                (change)="toggleHoldCustodian(link.custodianId, $any($event.target).checked)"
+                [checked]="holdIncludes(custodian.id)"
+                (change)="toggleHoldCustodian(custodian.id, $any($event.target).checked)"
               />
-              <span>{{ link.displayName }} <span class="muted small">{{ link.email }}</span></span>
+              <span>
+                {{ custodian.displayName }}
+                <span class="muted small">{{ custodian.messageCount | number }} sent</span>
+              </span>
             </label>
           }
         </div>
+        @if (holdForm.getRawValue().custodianIds.length === 0) {
+          <span class="field__hint">Select at least one custodian to scope the hold.</span>
+        }
       </div>
 
       <div class="form-grid">
@@ -574,13 +587,15 @@
         </label>
       </div>
 
-      <label class="field">
-        <span class="field__label">Search terms (optional)</span>
-        <input type="text" formControlName="searchTerms" placeholder="e.g. restricted list" />
-        <span class="field__hint">
-          Leave blank to hold everything for those custodians in the date range.
-        </span>
-      </label>
+      @if (searchTermsSupported) {
+        <label class="field">
+          <span class="field__label">Search terms (optional)</span>
+          <input type="text" formControlName="searchTerms" placeholder="e.g. restricted list" />
+          <span class="field__hint">
+            Leave blank to hold everything for those custodians in the date range.
+          </span>
+        </label>
+      }
 
       @if (scopePreview() !== null) {
         <div class="banner banner--info">

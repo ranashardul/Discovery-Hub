@@ -8,7 +8,9 @@
       </p>
     </div>
     <div class="page__actions">
-      <a class="btn btn--primary" routerLink="/cases">Place a hold from a case</a>
+      <a class="btn btn--primary" routerLink="/cases">
+        Choose a case to place a hold
+      </a>
     </div>
   </div>
 
@@ -90,7 +92,10 @@
       } @else if (loading()) {
         <app-loading message="Loading holds…" />
       } @else if (visible().length === 0) {
-        <app-empty title="No holds" hint="Holds are placed from a case, scoped by custodian." />
+        <app-empty
+          title="No holds"
+          hint="A hold belongs to a case: open one, go to its Holds tab, and place it there."
+        />
       } @else {
         <div class="table-wrap">
           <table class="data">

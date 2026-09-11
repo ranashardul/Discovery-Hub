@@ -99,6 +99,14 @@ export class CaseDetailPage {
 
   protected readonly readOnly = computed(() => this.legalCase()?.status === 'CLOSED');
 
+  /**
+   * The criteria model on the case service has no free-text term, so
+   * HttpHoldApi cannot send one. Offering the field against the real services
+   * would silently widen a hold beyond what the reviewer asked for, which on a
+   * preservation instrument is not a cosmetic difference.
+   */
+  protected readonly searchTermsSupported = environment.useMockBackend;
+
   protected readonly allowedTransitions = computed<readonly CaseStatus[]>(() => {
     const status = this.legalCase()?.status;
     return status ? ALLOWED_CASE_TRANSITIONS[status] : [];
@@ -232,7 +240,9 @@ export class CaseDetailPage {
   protected openHoldModal(): void {
     this.holdForm.reset({
       reason: `Preservation obligation for ${this.legalCase()?.name ?? 'this matter'}`,
-      custodianIds: this.custodians().map((link) => link.custodianId),
+      // Deliberately empty: the directory is the whole archive, so prefilling
+      // it would offer a hold over every custodian by default.
+      custodianIds: [],
       after: '',
       before: '',
       searchTerms: '',
@@ -256,7 +266,24 @@ export class CaseDetailPage {
     return this.holdForm.getRawValue().custodianIds.includes(custodianId);
   }
 
+  /**
+   * The service rejects criteria with no filter at all, and a hold over every
+   * custodian is never what someone meant to click. Caught here so the
+   * reviewer gets the reason rather than a 400.
+   */
+  private requireCustodianSelection(): boolean {
+    if (this.holdForm.getRawValue().custodianIds.length > 0) {
+      return true;
+    }
+    this.toast.error('Select at least one custodian to scope the hold');
+    return false;
+  }
+
   protected async previewScope(): Promise<void> {
+    if (!this.requireCustodianSelection()) {
+      return;
+    }
+
     this.busy.set(true);
     try {
       const count = await firstValueFrom(this.holdApi.previewScope(this.holdScope()));
@@ -271,6 +298,9 @@ export class CaseDetailPage {
   protected async placeHold(): Promise<void> {
     if (this.holdForm.invalid) {
       this.holdForm.markAllAsTouched();
+      return;
+    }
+    if (!this.requireCustodianSelection()) {
       return;
     }
 
