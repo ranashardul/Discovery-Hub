@@ -165,9 +165,9 @@ export class MockCaseApi extends CaseApi {
     );
   }
 
-  override removeEvidence(caseId: string, evidenceId: string): Observable<void> {
+  override removeEvidence(caseId: string, messageId: string): Observable<void> {
     return remote(this.store, 'case-hold', 'Case & hold service', 100, () =>
-      this.store.removeEvidence(caseId, evidenceId),
+      this.store.removeEvidence(caseId, messageId),
     );
   }
 

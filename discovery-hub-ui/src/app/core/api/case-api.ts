@@ -45,7 +45,8 @@ export abstract class CaseApi {
   /** Returns only the items actually added; already-present messages are skipped. */
   abstract addEvidence(caseId: string, request: AddEvidenceRequest): Observable<EvidenceItem[]>;
 
-  abstract removeEvidence(caseId: string, evidenceId: string): Observable<void>;
+  /** Remove a communication reference from the case. The message itself is untouched. */
+  abstract removeEvidence(caseId: string, messageId: string): Observable<void>;
 
   /** Directory of custodians available to attach to a case. */
   abstract listAllCustodians(): Observable<Custodian[]>;

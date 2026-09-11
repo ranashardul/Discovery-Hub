@@ -163,9 +163,13 @@ export class HttpCaseApi extends CaseApi {
       );
   }
 
-  /** No endpoint removes a communication from a case. */
-  removeEvidence(caseId: string, evidenceId: string): Observable<void> {
-    return this.fallback.removeEvidence(caseId, evidenceId);
+  /** Remove a communication reference from the case. The message itself is untouched. */
+  removeEvidence(caseId: string, messageId: string): Observable<void> {
+    return this.http
+      .delete<void>(
+        `${this.base}/${encodeURIComponent(caseId)}/communications/${encodeURIComponent(messageId)}`,
+      )
+      .pipe(catchError(toApiError));
   }
 
   listCustodians(caseId: string): Observable<CaseCustodian[]> {
