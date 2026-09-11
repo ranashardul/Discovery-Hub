@@ -47,13 +47,14 @@
       <span class="field__label">Custodians in scope</span>
       <span class="field__hint">
         Matched against the sender and recipients of every message. Selecting more than one holds
-        anything involving any of them.
+        anything involving any of them. When a case is chosen, only people on that case's evidence
+        are shown.
       </span>
       <div
         class="stack--sm"
         style="display: grid; gap: 0.3rem; max-height: 14rem; overflow-y: auto"
       >
-        @for (custodian of directory(); track custodian.id) {
+        @for (custodian of availableCustodians(); track custodian.id) {
           <label class="check">
             <input
               type="checkbox"
@@ -62,7 +63,9 @@
             />
             <span>
               {{ custodian.displayName }}
-              <span class="muted small">{{ custodian.messageCount | number }} sent</span>
+              @if (custodian.messageCount > 0) {
+                <span class="muted small">{{ custodian.messageCount | number }} sent</span>
+              }
             </span>
           </label>
         }
