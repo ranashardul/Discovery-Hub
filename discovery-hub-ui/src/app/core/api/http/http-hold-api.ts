@@ -89,7 +89,12 @@ export class HttpHoldApi extends HoldApi {
           dateTo: request.scope.before,
         },
       })
-      .pipe(map((hold) => this.toHold(hold)), catchError(toApiError));
+      .pipe(
+        map((hold) => this.toHold(hold)),
+        switchMap((hold) => this.withScopeCounts([hold])),
+        map((holds) => holds[0]),
+        catchError(toApiError),
+      );
   }
 
   releaseHold(id: string, releasedBy: string): Observable<LegalHold> {
@@ -158,8 +163,48 @@ export class HttpHoldApi extends HoldApi {
       .get<WireHold[]>(`${this.base}/cases/${encodeURIComponent(caseId)}/holds`)
       .pipe(
         map((holds) => holds.map((hold) => this.toHold(hold, caseName))),
+        switchMap((holds) => this.withScopeCounts(holds)),
         catchError(toApiError),
       );
+  }
+
+  /**
+   * Fills in the scope size for criteria-based holds.
+   *
+   * `communicationCount` counts rows in `hold_communications`, which only an
+   * explicit COMMUNICATION-scope hold writes. A CRITERIA hold stores a rule
+   * instead, so the service reports 0 for it however much the rule covers —
+   * which reads as "this hold preserved nothing". The rule's size comes from
+   * the same preview endpoint that sized the scope before the hold was placed.
+   *
+   * Only ACTIVE holds are resolved: a released hold preserves nothing, so its
+   * criteria would still match messages it no longer protects. A failed count
+   * degrades to the service's own number rather than failing the list.
+   */
+  private withScopeCounts(holds: LegalHold[]): Observable<LegalHold[]> {
+    const pending = holds.filter(
+      (hold) =>
+        hold.status === 'ACTIVE' &&
+        hold.matchedMessageCount === 0 &&
+        hold.scope.custodianIds.length > 0,
+    );
+
+    if (pending.length === 0) {
+      return of(holds);
+    }
+
+    return forkJoin(
+      pending.map((hold) => this.previewScope(hold.scope).pipe(catchError(() => of(0)))),
+    ).pipe(
+      map((counts) => {
+        const resolved = new Map(pending.map((hold, index) => [hold.id, counts[index]]));
+        return holds.map((hold) =>
+          resolved.has(hold.id)
+            ? { ...hold, matchedMessageCount: resolved.get(hold.id)! }
+            : hold,
+        );
+      }),
+    );
   }
 
   private toHold(hold: WireHold, caseName?: string): LegalHold {

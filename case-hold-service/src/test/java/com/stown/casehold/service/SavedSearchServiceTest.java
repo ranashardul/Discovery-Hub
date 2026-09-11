@@ -121,16 +121,6 @@ class SavedSearchServiceTest {
     }
 
     @Test
-    void refusesToSaveAgainstAnArchivedCase() {
-        CaseEntity archived = openCase();
-        archived.setStatus(CaseStatus.ARCHIVED);
-        when(caseRepository.findById(CASE_ID)).thenReturn(Optional.of(archived));
-
-        assertThatThrownBy(() -> service.save(CASE_ID, request("Too late")))
-                .isInstanceOf(IllegalHoldStateException.class);
-    }
-
-    @Test
     void refusesToSaveAgainstACaseThatDoesNotExist() {
         when(caseRepository.findById(CASE_ID)).thenReturn(Optional.empty());
 

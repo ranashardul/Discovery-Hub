@@ -8,7 +8,9 @@
       </p>
     </div>
     <div class="page__actions">
-      <a class="btn btn--primary" routerLink="/cases">Place a hold from a case</a>
+      <button type="button" class="btn btn--primary" (click)="dialogOpen.set(true)">
+        Place a hold
+      </button>
     </div>
   </div>
 
@@ -90,7 +92,10 @@
       } @else if (loading()) {
         <app-loading message="Loading holds…" />
       } @else if (visible().length === 0) {
-        <app-empty title="No holds" hint="Holds are placed from a case, scoped by custodian." />
+        <app-empty
+          title="No holds"
+          hint="Place one with the button above: choose a case, then scope it by custodian."
+        />
       } @else {
         <div class="table-wrap">
           <table class="data">
@@ -116,7 +121,9 @@
                     }
                   </td>
                   <td class="small">
-                    <a [routerLink]="['/cases', hold.caseId]">{{ hold.caseName }}</a>
+                    <a [routerLink]="['/cases', hold.caseId]">
+                      {{ hold.caseName || 'Open case' }}
+                    </a>
                   </td>
                   <td class="small">
                     {{ hold.scope.custodianIds.length }} custodian(s)
@@ -142,6 +149,7 @@
                     >
                       View held
                     </a>
+                    <a class="btn btn--sm" [routerLink]="['/cases', hold.caseId]">Open case</a>
                     <button
                       type="button"
                       class="btn btn--sm"
@@ -160,3 +168,7 @@
     </div>
   </section>
 </div>
+
+@if (dialogOpen()) {
+  <app-place-hold-dialog (placed)="onPlaced($event)" (dismissed)="dialogOpen.set(false)" />
+}

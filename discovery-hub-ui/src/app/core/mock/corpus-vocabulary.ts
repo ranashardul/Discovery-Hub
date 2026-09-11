@@ -172,7 +172,7 @@ export const CASE_SEEDS = [
     description:
       'Routine surveillance sweep of pre-clearance and disclosure communications ahead of the quarterly attestation cycle.',
     matterType: 'INVESTIGATION' as const,
-    status: 'ARCHIVED' as const,
+    status: 'CLOSED' as const,
   },
   {
     name: 'Arclight wall crossing audit',

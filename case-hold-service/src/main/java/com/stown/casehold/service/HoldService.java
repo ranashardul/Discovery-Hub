@@ -9,7 +9,6 @@ import com.stown.casehold.api.HoldScopePreviewResponse;
 import com.stown.casehold.api.HoldResponse;
 import com.stown.casehold.api.ReleaseHoldRequest;
 import com.stown.casehold.domain.CaseEntity;
-import com.stown.casehold.domain.CaseStatus;
 import com.stown.casehold.domain.HoldCommunicationEntity;
 import com.stown.casehold.domain.HoldCriteria;
 import com.stown.casehold.domain.HoldEntity;
@@ -72,12 +71,6 @@ public class HoldService {
     public HoldResponse createHold(UUID caseId, CreateHoldRequest request) {
         CaseEntity caseEntity = caseRepository.findById(caseId)
                 .orElseThrow(() -> new CaseNotFoundException(caseId.toString()));
-
-        if (caseEntity.getStatus() == CaseStatus.ARCHIVED) {
-            throw new IllegalHoldStateException(
-                    "Cannot place a hold on an archived case: " + caseId
-            );
-        }
 
         boolean hasCommunications = request.communications() != null && !request.communications().isEmpty();
         boolean hasCriteria = request.criteria() != null && !request.criteria().isEmpty();

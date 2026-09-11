@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, firstValueFrom, interval, of } from 'rxjs';
@@ -29,6 +29,7 @@ import { AgoPipe, BytesPipe, LabelPipe } from '../../shared/pipes/format.pipes';
 import { Modal } from '../../shared/ui/modal';
 import { Empty, ErrorBand, Loading } from '../../shared/ui/state-blocks';
 import { StatusChip } from '../../shared/ui/status-chip';
+import { PlaceHoldDialog } from '../holds/place-hold-dialog';
 
 type Tab = 'evidence' | 'custodians' | 'holds' | 'searches' | 'exports' | 'audit';
 
@@ -53,6 +54,7 @@ type Tab = 'evidence' | 'custodians' | 'holds' | 'searches' | 'exports' | 'audit
     Loading,
     Empty,
     ErrorBand,
+    PlaceHoldDialog,
   ],
   templateUrl: './case-detail-page.html',
 })
@@ -85,17 +87,8 @@ export class CaseDetailPage {
   protected readonly custodianModalOpen = signal(false);
   protected readonly holdModalOpen = signal(false);
   protected readonly deletionResult = signal<DeletionAttemptResult | null>(null);
-  protected readonly scopePreview = signal<number | null>(null);
 
   protected readonly custodianForm = this.fb.nonNullable.group({ custodianId: '' });
-
-  protected readonly holdForm = this.fb.nonNullable.group({
-    reason: ['', Validators.required],
-    custodianIds: [[] as string[]],
-    after: '',
-    before: '',
-    searchTerms: '',
-  });
 
   protected readonly readOnly = computed(() => this.legalCase()?.status === 'CLOSED');
 
@@ -229,73 +222,15 @@ export class CaseDetailPage {
     }
   }
 
-  protected openHoldModal(): void {
-    this.holdForm.reset({
-      reason: `Preservation obligation for ${this.legalCase()?.name ?? 'this matter'}`,
-      custodianIds: this.custodians().map((link) => link.custodianId),
-      after: '',
-      before: '',
-      searchTerms: '',
-    });
-    this.scopePreview.set(null);
-    this.holdModalOpen.set(true);
-  }
-
-  protected toggleHoldCustodian(custodianId: string, checked: boolean): void {
-    const current = new Set(this.holdForm.getRawValue().custodianIds);
-    if (checked) {
-      current.add(custodianId);
-    } else {
-      current.delete(custodianId);
-    }
-    this.holdForm.patchValue({ custodianIds: [...current] });
-    this.scopePreview.set(null);
-  }
-
-  protected holdIncludes(custodianId: string): boolean {
-    return this.holdForm.getRawValue().custodianIds.includes(custodianId);
-  }
-
-  protected async previewScope(): Promise<void> {
-    this.busy.set(true);
-    try {
-      const count = await firstValueFrom(this.holdApi.previewScope(this.holdScope()));
-      this.scopePreview.set(count);
-    } catch (error) {
-      this.toast.error(error);
-    } finally {
-      this.busy.set(false);
-    }
-  }
-
-  protected async placeHold(): Promise<void> {
-    if (this.holdForm.invalid) {
-      this.holdForm.markAllAsTouched();
-      return;
-    }
-
-    this.busy.set(true);
-    try {
-      const hold = await firstValueFrom(
-        this.holdApi.placeHold({
-          caseId: this.id(),
-          reason: this.holdForm.getRawValue().reason,
-          scope: this.holdScope(),
-        }),
-      );
-      this.toast.success(
-        `Hold ${hold.id} placed over ${hold.matchedMessageCount} communication(s). ` +
-          'Preservation is applied to the message data in the background.',
-      );
-      this.holdModalOpen.set(false);
-      this.tab.set('holds');
-      this.refreshHolds();
-      this.refreshAudit();
-    } catch (error) {
-      this.toast.error(error);
-    } finally {
-      this.busy.set(false);
-    }
+  protected onHoldPlaced(hold: LegalHold): void {
+    this.holdModalOpen.set(false);
+    this.toast.success(
+      `Hold ${hold.id} placed over ${hold.matchedMessageCount} communication(s). ` +
+        'Preservation is applied to the message data in the background.',
+    );
+    this.tab.set('holds');
+    this.refreshHolds();
+    this.refreshAudit();
   }
 
   protected async releaseHold(holdId: string): Promise<void> {
@@ -369,16 +304,6 @@ export class CaseDetailPage {
       }
     }
     return params;
-  }
-
-  private holdScope() {
-    const value = this.holdForm.getRawValue();
-    return {
-      custodianIds: value.custodianIds,
-      after: value.after ? new Date(`${value.after}T00:00:00Z`).toISOString() : null,
-      before: value.before ? new Date(`${value.before}T23:59:59Z`).toISOString() : null,
-      searchTerms: value.searchTerms.trim() || null,
-    };
   }
 
   private refreshCase(): void {

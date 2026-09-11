@@ -12,6 +12,7 @@ import { ToastService } from '../../shared/notifications/toast.service';
 import { AgoPipe, LabelPipe } from '../../shared/pipes/format.pipes';
 import { Empty, ErrorBand, Loading } from '../../shared/ui/state-blocks';
 import { StatusChip } from '../../shared/ui/status-chip';
+import { PlaceHoldDialog } from './place-hold-dialog';
 
 /**
  * Hold management across every case (FR-4), plus the deletion test that proves
@@ -31,6 +32,7 @@ import { StatusChip } from '../../shared/ui/status-chip';
     Loading,
     Empty,
     ErrorBand,
+    PlaceHoldDialog,
   ],
   templateUrl: './holds-page.html',
 })
@@ -48,6 +50,7 @@ export class HoldsPage {
   protected readonly statusFilter = signal<HoldStatus | ''>('');
   protected readonly deletionResult = signal<DeletionAttemptResult | null>(null);
   protected readonly checking = signal(false);
+  protected readonly dialogOpen = signal(false);
 
   protected readonly deleteForm = this.fb.nonNullable.group({ messageId: '' });
 
@@ -85,6 +88,15 @@ export class HoldsPage {
         this.holds.set(holds);
         this.loading.set(false);
       });
+  }
+
+  protected onPlaced(hold: LegalHold): void {
+    this.dialogOpen.set(false);
+    this.toast.success(
+      `Hold ${hold.id} placed over ${hold.matchedMessageCount} communication(s). ` +
+        'Preservation is applied to the message data in the background.',
+    );
+    this.load(true);
   }
 
   protected async release(holdId: string): Promise<void> {

@@ -101,8 +101,13 @@ class CaseHoldIntegrationTest extends AbstractIntegrationTest {
         assertThat(updated.status()).isEqualTo("CLOSED");
     }
 
+    /**
+     * The case lifecycle is OPEN and CLOSED. ARCHIVED was removed, so it is no
+     * longer a status the API will accept — this pins that, because the value
+     * is still a plausible thing for an old client to send.
+     */
     @Test
-    void rejectsUpdateToArchivedCaseWithNoChanges() {
+    void rejectsAStatusOutsideTheCaseLifecycle() {
         CaseResponse created = post(
                 "/api/v1/cases",
                 """
@@ -112,30 +117,17 @@ class CaseHoldIntegrationTest extends AbstractIntegrationTest {
         ).getBody();
         assertThat(created).isNotNull();
 
-        // Archive it first.
-        patch(
+        ResponseEntity<Map> response = patch(
                 "/api/v1/cases/" + created.caseId(),
                 """
                 { "status": "ARCHIVED", "updatedBy": "admin" }
                 """,
-                CaseResponse.class
-        );
-
-        // Now attempt to add communications to the archived case → 409.
-        ResponseEntity<Map> response = post(
-                "/api/v1/cases/" + created.caseId() + "/communications",
-                """
-                {
-                  "communications": [
-                    { "communicationId": "msg-1" }
-                  ],
-                  "addedBy": "admin"
-                }
-                """,
                 Map.class
         );
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().get("message").toString()).contains("OPEN, CLOSED");
     }
 
     @Test

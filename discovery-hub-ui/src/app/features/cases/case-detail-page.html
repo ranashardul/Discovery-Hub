@@ -52,13 +52,6 @@
       </div>
     }
 
-    @if (item.status === 'ARCHIVED') {
-      <div class="banner banner--info" style="margin-bottom: 1rem">
-        This case is <strong>archived</strong>. New holds are refused on an archived case; reopen it
-        to preserve further material.
-      </div>
-    }
-
     <div class="grid grid--metrics" style="margin-bottom: 1rem">
       <div class="metric">
         <p class="metric__label">Evidence items</p>
@@ -224,7 +217,7 @@
           @if (custodians().length === 0) {
             <app-empty
               title="No custodians attached"
-              hint="A hold must be scoped by custodian, so attach at least one."
+              hint="Attaching a custodian records them on the matter; a hold is scoped from the archive directory and does not require it."
             />
           } @else {
             <div class="table-wrap">
@@ -278,8 +271,8 @@
           <button
             type="button"
             class="btn btn--sm btn--primary"
-            [disabled]="readOnly() || custodians().length === 0"
-            (click)="openHoldModal()"
+            [disabled]="readOnly()"
+            (click)="holdModalOpen.set(true)"
           >
             Place hold
           </button>
@@ -532,72 +525,10 @@
   </app-modal>
 }
 
-@if (holdModalOpen()) {
-  <app-modal
-    title="Place a legal hold"
-    subtitle="Scope by custodian, date range and optionally search terms."
+@if (holdModalOpen() && legalCase()) {
+  <app-place-hold-dialog
+    [presetCase]="legalCase()"
+    (placed)="onHoldPlaced($event)"
     (dismissed)="holdModalOpen.set(false)"
-  >
-    <form [formGroup]="holdForm" class="stack">
-      <label class="field">
-        <span class="field__label">Reason</span>
-        <input type="text" formControlName="reason" />
-        @if (holdForm.controls.reason.touched && holdForm.controls.reason.invalid) {
-          <span class="field__error">A reason is required for the chain of custody.</span>
-        }
-      </label>
-
-      <div class="field">
-        <span class="field__label">Custodians in scope</span>
-        <div class="stack--sm" style="display: grid; gap: 0.3rem">
-          @for (link of custodians(); track link.custodianId) {
-            <label class="check">
-              <input
-                type="checkbox"
-                [checked]="holdIncludes(link.custodianId)"
-                (change)="toggleHoldCustodian(link.custodianId, $any($event.target).checked)"
-              />
-              <span>{{ link.displayName }} <span class="muted small">{{ link.email }}</span></span>
-            </label>
-          }
-        </div>
-      </div>
-
-      <div class="form-grid">
-        <label class="field">
-          <span class="field__label">From date</span>
-          <input type="date" formControlName="after" />
-        </label>
-        <label class="field">
-          <span class="field__label">To date</span>
-          <input type="date" formControlName="before" />
-        </label>
-      </div>
-
-      <label class="field">
-        <span class="field__label">Search terms (optional)</span>
-        <input type="text" formControlName="searchTerms" placeholder="e.g. restricted list" />
-        <span class="field__hint">
-          Leave blank to hold everything for those custodians in the date range.
-        </span>
-      </label>
-
-      @if (scopePreview() !== null) {
-        <div class="banner banner--info">
-          This scope currently covers <strong>{{ scopePreview() | number }}</strong> message(s).
-          Placing the hold returns immediately and propagates in the background.
-        </div>
-      }
-    </form>
-
-    <div modalActions>
-      <button type="button" class="btn" (click)="holdModalOpen.set(false)">Cancel</button>
-      <button type="button" class="btn" [disabled]="busy()" (click)="previewScope()">
-        Preview scope
-      </button>
-      <button type="button" class="btn btn--danger" [disabled]="busy()" (click)="placeHold()">
-        Place hold
-      </button>
-    </div>
-  </app-modal>
+  />
 }

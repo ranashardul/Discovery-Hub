@@ -3,7 +3,6 @@ package com.stown.casehold.service;
 import com.stown.casehold.api.CreateSavedSearchRequest;
 import com.stown.casehold.api.SavedSearchResponse;
 import com.stown.casehold.domain.CaseEntity;
-import com.stown.casehold.domain.CaseStatus;
 import com.stown.casehold.domain.SavedSearchEntity;
 import com.stown.casehold.repository.CaseRepository;
 import com.stown.casehold.repository.SavedSearchRepository;
@@ -52,12 +51,6 @@ public class SavedSearchService {
     @Transactional
     public SavedSearchResponse save(UUID caseId, CreateSavedSearchRequest request) {
         CaseEntity entity = requireCase(caseId);
-
-        if (entity.getStatus() == CaseStatus.ARCHIVED) {
-            throw new IllegalHoldStateException(
-                    "Cannot add a saved search to an archived case: " + caseId
-            );
-        }
 
         String name = request.name().trim();
 

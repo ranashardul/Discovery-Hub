@@ -45,7 +45,6 @@ export class StatusChip {
       case 'QUEUED':
       case 'RELEASED':
       case 'CLOSED':
-      case 'ARCHIVED':
       case 'DISPOSED':
         return 'neutral';
       case 'FAILED':

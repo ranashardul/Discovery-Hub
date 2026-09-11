@@ -49,11 +49,11 @@ describe('MockStore', () => {
     const created = newCase();
     expect(created.status).toBe('OPEN');
 
+    // OPEN and CLOSED are the whole lifecycle, and closing is reversible.
     expect(store.changeStatus(created.id, 'CLOSED').status).toBe('CLOSED');
     expect(store.changeStatus(created.id, 'OPEN').status).toBe('OPEN');
-    expect(store.changeStatus(created.id, 'ARCHIVED').status).toBe('ARCHIVED');
 
-    // ARCHIVED is terminal in the UI's transition map.
+    // Re-entering the status you are already in is not a transition.
     expect(() => store.changeStatus(created.id, 'OPEN')).toThrow(/Invalid transition/);
   });
 
