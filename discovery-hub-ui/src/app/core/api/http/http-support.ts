@@ -47,7 +47,14 @@ export function toApiError(error: unknown): Observable<never> {
   );
 }
 
-/** Builds a query string, dropping null, undefined and empty values. */
+/**
+ * Builds a query string, dropping null, undefined and empty values.
+ *
+ * An array becomes one repeated parameter per entry, which is how Spring
+ * binds a `List<String>` request parameter. Collapsing it to a single
+ * comma-joined value instead would arrive as one long string and match
+ * nothing.
+ */
 export function toParams(values: Record<string, unknown>): HttpParams {
   let params = new HttpParams();
 
@@ -55,6 +62,16 @@ export function toParams(values: Record<string, unknown>): HttpParams {
     if (value === null || value === undefined || value === '') {
       continue;
     }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        if (entry !== null && entry !== undefined && entry !== '') {
+          params = params.append(key, String(entry));
+        }
+      }
+      continue;
+    }
+
     params = params.set(key, String(value));
   }
 

@@ -16,6 +16,29 @@ public class SearchQueryBuilder {
     public static final String SUBJECT_FIELD = "subject^2";
     public static final String BODY_FIELD = "body";
 
+    /**
+     * Participants are part of the full-text surface, not only of the exact
+     * filters: "find everything about Imogen Reddy" is a question a reviewer
+     * asks before they know the address to filter on, and without these the
+     * only hits are incidental mentions in a body.
+     *
+     * <p>Both are the analysed {@code text} field, not the {@code .keyword}
+     * sub-field the filters use, so a partial name matches. They are boosted
+     * below {@code subject} because a name in the subject line is a stronger
+     * signal than the same name in a distribution list.
+     *
+     * <p>Terms stay OR'd, as everywhere else in this query. Pasting a whole
+     * address here is therefore still a poor way to find someone — every
+     * custodian shares a mail domain, so the domain tokens match the entire
+     * corpus and only the ranking saves it. That is what the {@code sender},
+     * {@code recipient} and {@code participant} filters are for. Requiring
+     * every term instead would fix that one input and break ordinary ones:
+     * against the seeded corpus {@code operator=AND} takes "preservation
+     * notice" from 1,019 hits to zero.
+     */
+    public static final String SENDER_FIELD = "sender^1.5";
+    public static final String RECIPIENTS_FIELD = "recipients";
+
     static final String TIMESTAMP_FIELD = "messageTimestamp";
 
     /**
@@ -33,8 +56,8 @@ public class SearchQueryBuilder {
     static final String ID_TIEBREAK_FIELD = "messageId";
 
     /**
-     * Full text match over subject and body, narrowed by the optional keyword
-     * filters.
+     * Full text match over subject, body and participants, narrowed by the
+     * optional keyword filters.
      */
     public Query build(SearchCriteria criteria) {
         BoolQuery.Builder bool = new BoolQuery.Builder();
@@ -42,7 +65,7 @@ public class SearchQueryBuilder {
         if (criteria.hasQuery()) {
             bool.must(must -> must.multiMatch(multiMatch -> multiMatch
                     .query(criteria.query())
-                    .fields(SUBJECT_FIELD, BODY_FIELD)
+                    .fields(SUBJECT_FIELD, BODY_FIELD, SENDER_FIELD, RECIPIENTS_FIELD)
                     .type(TextQueryType.BestFields)));
         } else {
             // Filter-only request: match everything and let the filters narrow
