@@ -77,14 +77,17 @@ export class ExportsPage {
     this.exportApi
       .listJobs()
       .pipe(
+        // null distinguishes a failed read from a successful empty one. An
+        // empty array would blank the table, so one transient failure used to
+        // discard rows that are still perfectly valid.
         catchError((error: unknown) => {
           this.error.set(describeError(error));
-          return of([] as ExportJob[]);
+          return of(null);
         }),
       )
       .subscribe((jobs) => {
-        this.jobs.set(jobs);
-        if (jobs.length > 0) {
+        if (jobs) {
+          this.jobs.set(jobs);
           this.error.set(null);
         }
         this.loading.set(false);
@@ -98,12 +101,34 @@ export class ExportsPage {
   protected async download(job: ExportJob): Promise<void> {
     try {
       const updated = await firstValueFrom(this.exportApi.registerDownload(job.id));
+
+      if (updated.downloadUrl) {
+        // A plain same-tab click, deliberately: the presigned URL carries
+        // `Content-Disposition: attachment`, so the browser saves the file and
+        // abandons the navigation rather than leaving the page. Opening a new
+        // window instead would be blocked as a popup, because awaiting the
+        // link above spends the user activation this click would need.
+        const link = document.createElement('a');
+        link.href = updated.downloadUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+
+      // Update the row locally from the response rather than re-fetching the
+      // whole list. A refresh XHR fired right after the download click gets
+      // cancelled by the browser's brief navigation to S3 (before it receives
+      // the Content-Disposition header and switches to a download), which
+      // surfaces as a spurious "service unavailable" banner.
+      this.jobs.update((jobs) =>
+        jobs.map((j) => (j.id === updated.id ? { ...j, ...updated } : j)),
+      );
+
       this.toast.success(
         this.expired(job)
           ? `Link had expired — a fresh one was issued and the download recorded (${updated.downloadCount} total)`
           : `Download recorded (${updated.downloadCount} total)`,
       );
-      this.load(true);
     } catch (error) {
       this.toast.error(error);
     }

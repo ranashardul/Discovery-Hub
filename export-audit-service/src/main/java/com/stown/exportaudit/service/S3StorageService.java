@@ -64,6 +64,15 @@ public class S3StorageService {
         return properties.getExportBucket();
     }
 
+    /**
+     * Bucket holding attachment binaries. Used as the fallback when an
+     * attachment record predates the service recording its own bucket:
+     * attachments live here, never in the export bucket.
+     */
+    public String getSourceBucket() {
+        return properties.getSourceBucket();
+    }
+
     /** S3 key for a completed export package, namespaced under the export id. */
     public String exportKey(String exportId, String filename) {
         return "%s/%s/%s".formatted(properties.getExportPrefix(), exportId, filename);
@@ -120,6 +129,14 @@ public class S3StorageService {
     /**
      * Generates a time-limited presigned URL for downloading a completed
      * export package.
+     *
+     * <p>The request overrides the response disposition so S3 serves the
+     * object as {@code attachment} with a filename naming the export. Without
+     * it the browser receives a bare {@code application/zip} body and decides
+     * for itself what to do: a link's {@code download} attribute is ignored
+     * cross-origin, so the tab navigates to S3 instead of saving the file,
+     * which both loses the filename and cancels whatever the page had in
+     * flight. Naming the disposition at the source makes every client save it.
      */
     public String presignedDownloadUrl(String key) {
         GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
@@ -127,10 +144,25 @@ public class S3StorageService {
                 .getObjectRequest(GetObjectRequest.builder()
                         .bucket(properties.getExportBucket())
                         .key(key)
+                        .responseContentDisposition(
+                                "attachment; filename=\"" + downloadFilename(key) + "\""
+                        )
                         .build())
                 .build();
 
         return s3Presigner.presignGetObject(presignRequest).url().toString();
+    }
+
+    /**
+     * Names the saved file after the export it belongs to, so a reviewer with
+     * several packages on disk can tell them apart. Keys are
+     * {@code exports/<exportId>/export-package.zip}.
+     */
+    private String downloadFilename(String key) {
+        String[] segments = key.split("/");
+        return segments.length >= 2
+                ? "export-" + segments[segments.length - 2] + ".zip"
+                : "export-package.zip";
     }
 
     public String sha256(byte[] content) {

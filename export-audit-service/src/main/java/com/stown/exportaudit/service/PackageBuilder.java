@@ -2,8 +2,8 @@ package com.stown.exportaudit.service;
 
 import tools.jackson.databind.ObjectMapper;
 import com.stown.exportaudit.domain.AttachmentMetadata;
+import com.stown.exportaudit.domain.ExportJobDocument;
 import com.stown.exportaudit.domain.ExportManifest;
-import com.stown.exportaudit.domain.ExportScope;
 import com.stown.exportaudit.domain.ManifestItem;
 import com.stown.exportaudit.domain.MessageDocument;
 import lombok.RequiredArgsConstructor;
@@ -21,10 +21,24 @@ import java.util.zip.ZipOutputStream;
 
 /**
  * Assembles an export package (ZIP) from the evidence returned by the
- * evidence provider. Each message is written in a readable text format and
- * every attachment binary is included. A {@code manifest.json} lists every
- * item with its SHA-256 checksum, and a package-level checksum is computed
- * over the ZIP bytes so the package can be verified later.
+ * evidence provider.
+ *
+ * <p>The archive is laid out so each file answers one question:
+ *
+ * <ul>
+ *   <li>{@code messages/} and {@code attachments/} — the evidence itself.</li>
+ *   <li>{@code audit-report.txt} — the case and its chain of custody, for a
+ *       reviewer to read.</li>
+ *   <li>{@code audit-report.json} — the same facts, for a machine to parse.</li>
+ *   <li>{@code manifest.json} — exactly what was exported, with a SHA-256 per
+ *       item.</li>
+ *   <li>{@code checksums.sha256} — the same digests in {@code sha256sum}
+ *       format, so integrity can be checked without this service.</li>
+ * </ul>
+ *
+ * <p>A package-level checksum is computed over the finished ZIP bytes and
+ * returned to the caller, because it cannot be written into the archive it
+ * describes.
  */
 @Slf4j
 @Service
@@ -34,25 +48,24 @@ public class PackageBuilder {
     private static final String MESSAGES_DIR = "messages/";
     private static final String ATTACHMENTS_DIR = "attachments/";
     private static final String MANIFEST_ENTRY = "manifest.json";
+    private static final String AUDIT_REPORT_TEXT_ENTRY = "audit-report.txt";
+    private static final String AUDIT_REPORT_JSON_ENTRY = "audit-report.json";
+    private static final String CHECKSUMS_ENTRY = "checksums.sha256";
 
     private final S3StorageService storageService;
     private final ChecksumService checksumService;
     private final ObjectMapper objectMapper;
+    private final CaseAuditReportBuilder auditReportBuilder;
 
     /**
      * Builds the export package for the supplied evidence.
      *
-     * @param exportId    job the package belongs to
-     * @param caseId      case the evidence was exported for
-     * @param scope       export scope
-     * @param requestedBy actor that requested the export
-     * @param messages    evidence items, ordered chronologically by the provider
+     * @param job      the export job being fulfilled, which carries the case,
+     *                 scope and requesting actor the report is written for
+     * @param messages evidence items, ordered chronologically by the provider
      */
     public PackageBuildResult build(
-            String exportId,
-            String caseId,
-            ExportScope scope,
-            String requestedBy,
+            ExportJobDocument job,
             List<MessageDocument> messages
     ) throws IOException {
         List<ManifestItem> items = new ArrayList<>();
@@ -81,15 +94,23 @@ public class PackageBuilder {
                 attachmentCount += addAttachments(zip, message, items);
             }
 
+            // Written after the evidence so the report can reconcile itself
+            // against the manifest entries that already exist.
+            addAuditReport(zip, job, messages, items);
+
+            // Covers every item written above. Deliberately not itself a
+            // manifest entry: a checksum file cannot attest to itself.
+            addChecksums(zip, items);
+
             // The manifest carries per-item checksums. The package-level
             // checksum cannot be included inside the ZIP (it is computed over
             // the final ZIP bytes), so it is left null here and returned
             // separately by the builder for the caller to persist.
             ExportManifest manifest = new ExportManifest(
-                    exportId,
-                    caseId,
-                    scope == null ? null : scope.name(),
-                    requestedBy,
+                    job.getExportId(),
+                    job.getCaseId(),
+                    job.getScope() == null ? null : job.getScope().name(),
+                    job.getRequestedBy(),
                     Instant.now(),
                     null,
                     messages.size(),
@@ -106,7 +127,7 @@ public class PackageBuilder {
 
         log.info(
                 "Built export package exportId={} messages={} attachments={} bytes={}",
-                exportId,
+                job.getExportId(),
                 messages.size(),
                 attachmentCount,
                 packageBytes.length
@@ -115,10 +136,10 @@ public class PackageBuilder {
         return new PackageBuildResult(
                 packageBytes,
                 new ExportManifest(
-                        exportId,
-                        caseId,
-                        scope == null ? null : scope.name(),
-                        requestedBy,
+                        job.getExportId(),
+                        job.getCaseId(),
+                        job.getScope() == null ? null : job.getScope().name(),
+                        job.getRequestedBy(),
                         Instant.now(),
                         packageSha256,
                         messages.size(),
@@ -145,7 +166,7 @@ public class PackageBuilder {
         for (AttachmentMetadata attachment : attachments) {
             String bucket = attachment.getS3Bucket() != null
                     ? attachment.getS3Bucket()
-                    : storageService.getExportBucket();
+                    : storageService.getSourceBucket();
             byte[] content = storageService.readAttachment(bucket, attachment.getS3Key());
             String sha = checksumService.sha256Hex(content);
 
@@ -168,6 +189,77 @@ public class PackageBuilder {
         }
 
         return count;
+    }
+
+    /**
+     * Writes the case audit report in both a readable and a parseable form, so
+     * the package is self-contained evidence of its own provenance (FR-7).
+     *
+     * <p>A failure here is logged and swallowed: the report describes the
+     * evidence, so losing it must not cost the export the evidence itself.
+     */
+    private void addAuditReport(
+            ZipOutputStream zip,
+            ExportJobDocument job,
+            List<MessageDocument> messages,
+            List<ManifestItem> items
+    ) throws IOException {
+        CaseAuditReport report;
+
+        try {
+            report = auditReportBuilder.build(job, messages, items);
+        } catch (RuntimeException exception) {
+            log.error(
+                    "Could not build the audit report for exportId={} caseId={}; "
+                            + "the evidence package is still complete",
+                    job.getExportId(),
+                    job.getCaseId(),
+                    exception
+            );
+            return;
+        }
+
+        byte[] textBytes = report.text().getBytes(StandardCharsets.UTF_8);
+        putEntry(zip, AUDIT_REPORT_TEXT_ENTRY, textBytes);
+        items.add(new ManifestItem(
+                "AUDIT_REPORT",
+                AUDIT_REPORT_TEXT_ENTRY,
+                job.getCaseId(),
+                null,
+                AUDIT_REPORT_TEXT_ENTRY,
+                textBytes.length,
+                checksumService.sha256Hex(textBytes)
+        ));
+
+        byte[] jsonBytes = objectMapper.writeValueAsBytes(report.data());
+        putEntry(zip, AUDIT_REPORT_JSON_ENTRY, jsonBytes);
+        items.add(new ManifestItem(
+                "AUDIT_REPORT",
+                AUDIT_REPORT_JSON_ENTRY,
+                job.getCaseId(),
+                null,
+                AUDIT_REPORT_JSON_ENTRY,
+                jsonBytes.length,
+                checksumService.sha256Hex(jsonBytes)
+        ));
+    }
+
+    /**
+     * Emits the per-item digests in {@code sha256sum} format so a recipient can
+     * verify the package with standard tooling:
+     * {@code sha256sum -c checksums.sha256}.
+     */
+    private void addChecksums(ZipOutputStream zip, List<ManifestItem> items) throws IOException {
+        StringBuilder checksums = new StringBuilder();
+
+        for (ManifestItem item : items) {
+            if (item.sha256() == null || item.sha256().isBlank()) {
+                continue;
+            }
+            checksums.append(item.sha256()).append("  ").append(item.path()).append('\n');
+        }
+
+        putEntry(zip, CHECKSUMS_ENTRY, checksums.toString().getBytes(StandardCharsets.UTF_8));
     }
 
     private byte[] renderMessage(MessageDocument message) {

@@ -141,7 +141,7 @@ class ExportJobServiceTest {
                 ),
                 "pkg-sha"
         );
-        when(packageBuilder.build(anyString(), anyString(), any(), anyString(), any()))
+        when(packageBuilder.build(any(), any()))
                 .thenReturn(result);
         when(storageService.exportKey("export-1", "export-package.zip"))
                 .thenReturn("exports/export-1/export-package.zip");
@@ -187,7 +187,7 @@ class ExportJobServiceTest {
         when(exportJobRepository.findById("export-1")).thenReturn(Optional.of(job));
         when(evidenceProvider.findEvidence(any()))
                 .thenReturn(List.of());
-        when(packageBuilder.build(anyString(), anyString(), any(), anyString(), any()))
+        when(packageBuilder.build(any(), any()))
                 .thenThrow(new ExportProcessingException("boom", new RuntimeException("cause")));
 
         assertThatThrownBy(() -> exportJobService.process(ExportRequestedEvent.builder()

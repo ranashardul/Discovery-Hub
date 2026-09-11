@@ -1,7 +1,7 @@
 package com.stown.exportaudit.service;
 
 import com.stown.exportaudit.domain.AttachmentMetadata;
-import com.stown.exportaudit.domain.ManifestItem;
+import com.stown.exportaudit.domain.ExportJobDocument;
 import com.stown.exportaudit.domain.MessageDocument;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,6 +30,9 @@ class PackageVerifierTest {
     @Mock
     private S3StorageService storageService;
 
+    @Mock
+    private CaseAuditReportBuilder auditReportBuilder;
+
     private ChecksumService checksumService;
     private PackageBuilder packageBuilder;
     private PackageVerifier packageVerifier;
@@ -38,8 +41,14 @@ class PackageVerifierTest {
     void setUp() {
         checksumService = new ChecksumService();
         ObjectMapper objectMapper = new ObjectMapper();
-        packageBuilder = new PackageBuilder(storageService, checksumService, objectMapper);
+        packageBuilder = new PackageBuilder(
+                storageService, checksumService, objectMapper, auditReportBuilder
+        );
         packageVerifier = new PackageVerifier(checksumService, objectMapper);
+
+        when(auditReportBuilder.build(any(), any(), any())).thenReturn(
+                new CaseAuditReport("CASE AUDIT REPORT\n", Map.of("caseId", "case-1"))
+        );
     }
 
     @Test
@@ -52,8 +61,12 @@ class PackageVerifierTest {
 
         assertThat(result.verified()).isTrue();
         assertThat(result.packageChecksumMatches()).isTrue();
-        assertThat(result.items()).hasSize(1);
-        assertThat(result.items().get(0).matches()).isTrue();
+        assertThat(result.items()).allMatch(ItemVerification::matches);
+
+        ItemVerification message = result.items().stream()
+                .filter(i -> "MESSAGE".equals(i.item().type()))
+                .findFirst().orElseThrow();
+        assertThat(message.matches()).isTrue();
     }
 
     @Test
@@ -91,7 +104,9 @@ class PackageVerifierTest {
 
         assertThat(result.verified()).isFalse();
 
-        ItemVerification item = result.items().get(0);
+        ItemVerification item = result.items().stream()
+                .filter(i -> "MESSAGE".equals(i.item().type()))
+                .findFirst().orElseThrow();
         assertThat(item.matches()).isFalse();
         assertThat(item.recomputedSha256()).isNull();
     }
@@ -125,18 +140,17 @@ class PackageVerifierTest {
                 "messages/msg-1/attachments/att-1/report.pdf"))
                 .thenReturn(attachmentContent);
 
-        PackageBuildResult built = packageBuilder.build(
-                "export-1", "case-1", null, "investigator@example.com",
-                List.of(message)
-        );
+        PackageBuildResult built = packageBuilder.build(job(), List.of(message));
 
         PackageVerification result = packageVerifier.verify(
                 "export-1", built.packageBytes(), built.packageSha256()
         );
 
         assertThat(result.verified()).isTrue();
-        assertThat(result.items()).hasSize(2);
         assertThat(result.items()).allMatch(ItemVerification::matches);
+        assertThat(result.items())
+                .filteredOn(i -> "ATTACHMENT".equals(i.item().type()))
+                .hasSize(1);
     }
 
     @Test
@@ -148,7 +162,9 @@ class PackageVerifierTest {
         );
 
         assertThat(result.verified()).isTrue();
-        assertThat(result.items()).isEmpty();
+        assertThat(result.items())
+                .filteredOn(i -> "MESSAGE".equals(i.item().type()))
+                .isEmpty();
     }
 
     private byte[] buildPackageWithMessage(String messageId, String body) throws IOException {
@@ -167,12 +183,16 @@ class PackageVerifierTest {
                     .build());
         }
 
-        PackageBuildResult result = packageBuilder.build(
-                "export-1", "case-1", null, "investigator@example.com",
-                messages
-        );
+        return packageBuilder.build(job(), messages).packageBytes();
+    }
 
-        return result.packageBytes();
+    private ExportJobDocument job() {
+        return ExportJobDocument.builder()
+                .exportId("export-1")
+                .caseId("case-1")
+                .requestedBy("investigator@example.com")
+                .createdAt(Instant.parse("2026-09-01T09:00:00Z"))
+                .build();
     }
 
     private byte[] replaceEntry(byte[] zipBytes, String entryName, byte[] newContent) throws IOException {

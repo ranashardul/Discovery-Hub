@@ -292,7 +292,9 @@ services:
       INGESTION_READ_TIMEOUT_MS: ${INGESTION_READ_TIMEOUT_MS:-5000}
       S3_SOURCE_BUCKET: ${S3_SOURCE_BUCKET:-discovery-hub-attachments}
       S3_EXPORT_BUCKET: ${S3_EXPORT_BUCKET:-discovery-hub-exports}
-      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      # Single dash: an explicitly empty value means "use real AWS S3", and
+      # ":-" would wrongly override it with the MinIO endpoint (see ingestion).
+      S3_ENDPOINT: ${S3_ENDPOINT-http://minio:9000}
       S3_PATH_STYLE_ACCESS: ${S3_PATH_STYLE_ACCESS:-true}
       S3_CREATE_BUCKET: ${S3_CREATE_BUCKET:-true}
       AWS_REGION: ${AWS_REGION:-ap-south-1}

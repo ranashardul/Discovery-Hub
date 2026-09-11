@@ -15,10 +15,12 @@ const ACTIONS: AuditAction[] = [
   'CASE_CREATED',
   'CASE_UPDATED',
   'CASE_STATUS_CHANGED',
+  'COMMUNICATION_ADDED_TO_CASE',
   'CUSTODIAN_ADDED',
   'CUSTODIAN_REMOVED',
   'EVIDENCE_ADDED',
   'EVIDENCE_REMOVED',
+  'HOLD_CREATED',
   'HOLD_PLACED',
   'HOLD_RELEASED',
   'SEARCH_EXECUTED',
@@ -89,6 +91,22 @@ export class AuditPage {
       showing: page.entries.length,
     };
   });
+
+  /** Maps caseId to case name, so the table can show which case each event belongs to. */
+  protected readonly caseName = computed(() => {
+    const map = new Map<string, string>();
+    for (const c of this.cases()) {
+      map.set(c.id, c.name);
+    }
+    return map;
+  });
+
+  protected caseLabel(caseId: string | null): string {
+    if (!caseId) {
+      return '—';
+    }
+    return this.caseName().get(caseId) ?? caseId.slice(0, 8);
+  }
 
   constructor() {
     const caseId = inject(ActivatedRoute).snapshot.queryParamMap.get('caseId');

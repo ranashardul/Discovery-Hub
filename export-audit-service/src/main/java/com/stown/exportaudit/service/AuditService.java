@@ -147,6 +147,27 @@ public class AuditService {
         return auditEventRepository.findByTargetIdOrderByTimestampDesc(targetId);
     }
 
+    /**
+     * Resolves the case a hold belongs to, so events published without a
+     * caseId (e.g. {@code DELETION_BLOCKED} from ingestion, which knows only
+     * the holdIds on a message) can be linked to the case for the audit trail.
+     *
+     * <p>Looks up the {@code HOLD_CREATED} event for the hold, which carries
+     * the caseId. Returns {@code null} if no such event exists — the hold
+     * may have been created before the audit listener was running.
+     */
+    public String findCaseIdByHoldId(String holdId) {
+        if (holdId == null || holdId.isBlank()) {
+            return null;
+        }
+        return auditEventRepository.findByTargetIdOrderByTimestampDesc(holdId).stream()
+                .filter(e -> "HOLD_CREATED".equals(e.getAction()))
+                .map(AuditEventDocument::getCaseId)
+                .filter(cid -> cid != null && !cid.isBlank())
+                .findFirst()
+                .orElse(null);
+    }
+
     /** A filtered, paged view of the trail, newest first. */
     public AuditPage query(AuditEventQueryRepository.AuditFilter filter, int page, int size) {
         return new AuditPage(

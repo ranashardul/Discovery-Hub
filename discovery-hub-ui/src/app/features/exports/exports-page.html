@@ -128,7 +128,7 @@
                   <td class="row-actions">
                     @if (job.status === 'COMPLETED') {
                       <button type="button" class="btn btn--sm" (click)="download(job)">
-                        {{ expired(job) ? 'Re-issue link' : 'Download' }}
+                        {{ expired(job) ? 'Export-link' : 'Download' }}
                       </button>
                       <button type="button" class="btn btn--sm" (click)="openManifest(job)">Manifest</button>
                       <button type="button" class="btn btn--sm" [disabled]="busy()" (click)="verify(job)">
