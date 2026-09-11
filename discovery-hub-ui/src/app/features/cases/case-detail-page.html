@@ -118,20 +118,17 @@
       @if (tab() === 'evidence') {
         <div class="card__head">
           <p class="card__hint">
-            Messages pinned to this case. Use "Test delete" to prove a held message cannot be
-            removed.
+            Messages pinned to this case. Removing one unlinks it here; the message stays in the
+            archive.
           </p>
           <a class="btn btn--sm" routerLink="/search">Find more evidence</a>
         </div>
 
-        @if (deletionResult(); as result) {
+        @if (caseOnHold()) {
           <div style="padding: 0 1.1rem 0.75rem">
-            <div class="banner" [class.banner--danger]="!result.deleted" [class.banner--success]="result.deleted">
-              <strong>{{ result.deleted ? 'Deleted' : 'Deletion blocked' }}</strong> —
-              {{ result.reason }}
-              <button type="button" class="btn btn--sm" style="margin-left: 0.5rem" (click)="deletionResult.set(null)">
-                Dismiss
-              </button>
+            <div class="banner">
+              Evidence is frozen while this case is under an active legal hold. Release the hold to
+              change it.
             </div>
           </div>
         }
@@ -179,14 +176,16 @@
                         </div>
                       </td>
                       <td class="row-actions">
-                        <button type="button" class="btn btn--sm" (click)="testDeletion(row.messageId)">
-                          Test delete
-                        </button>
                         <button
                           type="button"
                           class="btn btn--sm"
-                          [disabled]="readOnly()"
-                          (click)="removeEvidence(row.id)"
+                          [disabled]="caseOnHold()"
+                          [title]="
+                            caseOnHold()
+                              ? 'Cannot remove while the case is under an active legal hold'
+                              : 'Unlink from this case; the message stays in the archive'
+                          "
+                          (click)="removeEvidence(row.messageId)"
                         >
                           Remove
                         </button>

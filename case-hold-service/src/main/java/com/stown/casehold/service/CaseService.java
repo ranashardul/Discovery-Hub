@@ -162,6 +162,34 @@ public class CaseService {
     }
 
     @Transactional
+    public void removeCommunication(UUID caseId, String communicationId) {
+        CaseEntity entity = requireCase(caseId);
+
+        // Evidence is frozen while the case is under an active legal hold.
+        // The message itself is never touched here either way.
+        if (holdRepository.countByCaseIdAndStatus(caseId, HoldStatus.ACTIVE) > 0) {
+            throw new IllegalHoldStateException(
+                    "Cannot remove evidence while the case is under an active legal hold"
+            );
+        }
+
+        List<CaseCommunicationEntity> references =
+                caseCommunicationRepository.findByCaseIdOrderByAddedAtAsc(caseId).stream()
+                        .filter(item -> item.getCommunicationId().equals(communicationId))
+                        .toList();
+
+        if (references.isEmpty()) {
+            throw new IllegalArgumentException("Communication " + communicationId + " is not on this case");
+        }
+
+        caseCommunicationRepository.deleteAll(references);
+        entity.setUpdatedAt(Instant.now());
+        caseRepository.save(entity);
+
+        log.info("Removed communication {} from case id={}", communicationId, caseId);
+    }
+
+    @Transactional
     public CaseCommunicationsResponse addCommunications(
             UUID caseId,
             AddCaseCommunicationsRequest request

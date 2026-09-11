@@ -36,18 +36,11 @@ export const environment = {
    * They are listed rather than silently faked so a screen can say so, and so
    * the list shrinks visibly as the services grow. Saved searches, the
    * custodian directory, hold scope preview, retention policies, the
-   * disposition trigger, the export manifest and audit filtering have all
-   * since been implemented and are gone from this list.
-   *
-   * What is left is not a missing endpoint but a missing concept: the case
-   * service models *communications* on a case, never people. Attaching a
-   * custodian to a matter, and removing a single evidence item, have nowhere
-   * to be stored. Both need a domain decision rather than a controller.
+   * disposition trigger, the export manifest, audit filtering, attaching
+   * custodians to a case, and removing a single evidence item have all since
+   * been implemented and are gone from this list.
    */
   mockBacked: {
-    /** No case-to-custodian relation exists in the case-hold schema. */
-    caseCustodians: true,
-    /** No endpoint removes one communication from a case. */
-    removeEvidence: true,
+    /** Removing a single communication from a case is now implemented; this is empty. */
   },
 };

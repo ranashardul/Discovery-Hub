@@ -487,15 +487,21 @@ export class MockStore implements OnDestroy {
     return added;
   }
 
-  removeEvidence(caseId: string, evidenceId: string): void {
+  removeEvidence(caseId: string, messageId: string): void {
     const record = this.requireCase(caseId);
     this.assertOpen(record, 'remove evidence from');
 
+    if (this.holds.some((hold) => hold.caseId === caseId && hold.status !== 'RELEASED')) {
+      throw ApiError.conflict(
+        'Cannot remove evidence while the case is under an active legal hold',
+      );
+    }
+
     const index = this.evidence.findIndex(
-      (item) => item.caseId === caseId && item.id === evidenceId,
+      (item) => item.caseId === caseId && item.messageId === messageId,
     );
     if (index < 0) {
-      throw ApiError.notFound(`No evidence item ${evidenceId} on this case`);
+      throw ApiError.notFound(`No evidence item ${messageId} on this case`);
     }
 
     const [removed] = this.evidence.splice(index, 1);
