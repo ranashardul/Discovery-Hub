@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   input,
   output,
@@ -14,7 +15,7 @@ import { catchError, firstValueFrom, of } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { CaseApi } from '../../core/api/case-api';
 import { HoldApi } from '../../core/api/hold-api';
-import { LegalCase } from '../../core/models/case';
+import { EvidenceItem, LegalCase } from '../../core/models/case';
 import { LegalHold } from '../../core/models/hold';
 import { Custodian } from '../../core/models/message';
 import { ToastService } from '../../shared/notifications/toast.service';
@@ -29,11 +30,9 @@ import { Modal } from '../../shared/ui/modal';
  * hold covers. The Holds page has no case in hand so it shows the picker; the
  * case detail page passes {@link presetCase} and the picker is hidden.
  *
- * <p>Scope is expressed as custodians plus an optional date range, which maps
- * onto the `criteria` the case service stores. Custodians come from the archive
- * directory (`GET /api/search/custodians`), because `criteria.participants` is
- * matched against message senders and recipients — not against any registry of
- * people, which no service models.
+ * <p>When a case is known, the custodian list is scoped to the people who
+ * actually appear on the case's evidence. When no case is selected yet, the
+ * full archive directory is offered so a hold can still be scoped broadly.
  */
 @Component({
   selector: 'app-place-hold-dialog',
@@ -58,6 +57,7 @@ export class PlaceHoldDialog {
 
   protected readonly cases = signal<LegalCase[]>([]);
   protected readonly directory = signal<Custodian[]>([]);
+  protected readonly evidence = signal<EvidenceItem[]>([]);
   protected readonly selectedCaseId = signal('');
   protected readonly scopePreview = signal<number | null>(null);
   protected readonly loadingCases = signal(false);
@@ -90,11 +90,54 @@ export class PlaceHoldDialog {
 
   protected readonly needsCasePicker = computed(() => this.presetCase() === null);
 
+  /**
+   * Custodians offered for scoping the hold. When a case is selected, restrict
+   * to the sender and recipients of the case's evidence so the hold can only
+   * target people actually connected to the matter.
+   */
+  protected readonly availableCustodians = computed(() => {
+    const target = this.targetCase();
+    if (!target) {
+      return this.directory();
+    }
+
+    const participants = new Map<string, Custodian>();
+    for (const item of this.evidence()) {
+      for (const identity of [item.sender, ...item.recipients]) {
+        if (!identity || participants.has(identity)) {
+          continue;
+        }
+        participants.set(identity, {
+          id: identity,
+          displayName: identity,
+          email: identity,
+          department: '',
+          title: '',
+          messageCount: 0,
+        });
+      }
+    }
+
+    return [...participants.values()];
+  });
+
   constructor() {
     this.caseApi
       .listAllCustodians()
       .pipe(catchError(() => of([] as Custodian[])))
       .subscribe((directory) => this.directory.set(directory));
+
+    effect(() => {
+      const target = this.targetCase();
+      if (!target) {
+        this.evidence.set([]);
+        return;
+      }
+      this.caseApi
+        .listEvidence(target.id)
+        .pipe(catchError(() => of([] as EvidenceItem[])))
+        .subscribe((items) => this.evidence.set(items));
+    });
   }
 
   ngOnInit(): void {
