@@ -229,9 +229,9 @@ export class CaseDetailPage {
     }
   }
 
-  protected async removeEvidence(evidenceId: string): Promise<void> {
+  protected async removeEvidence(messageId: string): Promise<void> {
     try {
-      await firstValueFrom(this.caseApi.removeEvidence(this.id(), evidenceId));
+      await firstValueFrom(this.caseApi.removeEvidence(this.id(), messageId));
       this.toast.info('Evidence item removed; the removal is in the audit trail.');
       this.refreshEvidence();
       this.refreshCase();
@@ -269,6 +269,9 @@ export class CaseDetailPage {
     try {
       const result = await firstValueFrom(this.holdApi.attemptDelete(messageId));
       this.deletionResult.set(result);
+      if (result.deleted) {
+        await firstValueFrom(this.caseApi.removeEvidence(this.id(), messageId));
+      }
       this.refreshEvidence();
       this.refreshAudit();
     } catch (error) {
