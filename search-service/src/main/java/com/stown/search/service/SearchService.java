@@ -26,15 +26,21 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class SearchService {
 
+    private static final String SUBJECT_FIELD = "subject";
+
     /**
-     * Order matters: {@link #snippet} returns the first of these that
-     * produced a fragment. Subject and body come first because they read as
-     * prose; the participant fields are a fallback so that a hit matched only
-     * on a name still shows the reviewer why it matched, instead of an
-     * unrelated opening line from the body.
+     * Fields asked to produce a highlighted fragment.
+     *
+     * <p>The subject is highlighted in place and returned on its own, because
+     * the result list renders it as the title. The rest feed the body
+     * snippet, in this order: {@link #snippet} returns the first that
+     * produced a fragment, so a hit matched only on a participant still shows
+     * the reviewer why it matched instead of an unrelated opening line.
      */
     private static final List<String> HIGHLIGHT_FIELDS =
-            List.of("subject", "body", "sender", "recipients");
+            List.of(SUBJECT_FIELD, "body", "sender", "recipients");
+
+    private static final List<String> SNIPPET_FIELDS = List.of("body", "sender", "recipients");
 
     private final MessageIndexClient indexClient;
     private final SearchQueryBuilder queryBuilder;
@@ -170,6 +176,7 @@ public class SearchService {
                 document.getSender(),
                 document.getRecipients(),
                 document.getSubject(),
+                fragment(hit.highlight(), List.of(SUBJECT_FIELD)),
                 snippet(hit.highlight(), document.getBody()),
                 document.getThreadId(),
                 document.getMessageTimestamp(),
@@ -180,16 +187,24 @@ public class SearchService {
     }
 
     private String snippet(Map<String, List<String>> highlight, String body) {
-        if (highlight != null) {
-            for (String field : HIGHLIGHT_FIELDS) {
-                List<String> fragments = highlight.get(field);
-                if (fragments != null && !fragments.isEmpty()) {
-                    return fragments.getFirst();
-                }
+        String fragment = fragment(highlight, SNIPPET_FIELDS);
+        return fragment != null ? fragment : truncate(body);
+    }
+
+    /** The first highlighted fragment among {@code fields}, or null. */
+    private String fragment(Map<String, List<String>> highlight, List<String> fields) {
+        if (highlight == null) {
+            return null;
+        }
+
+        for (String field : fields) {
+            List<String> fragments = highlight.get(field);
+            if (fragments != null && !fragments.isEmpty()) {
+                return fragments.getFirst();
             }
         }
 
-        return truncate(body);
+        return null;
     }
 
     private String truncate(String body) {
