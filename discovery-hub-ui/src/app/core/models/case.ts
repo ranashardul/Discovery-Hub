@@ -64,6 +64,8 @@ export interface EvidenceItem {
   messageId: string;
   subject: string;
   sender: string;
+  /** Everyone on the message besides the sender: To, Cc, Bcc as stored by ingestion. */
+  recipients: string[];
   communicationType: string;
   messageTimestamp: string;
   attachmentCount: number;

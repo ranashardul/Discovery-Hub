@@ -345,13 +345,23 @@ export class MockStore implements OnDestroy {
     const record = this.requireCase(caseId);
     this.assertOpen(record, 'add custodians to');
 
-    const custodian = this.corpus.custodians.find((candidate) => candidate.id === custodianId);
-    if (!custodian) {
-      throw ApiError.notFound(`No custodian ${custodianId}`);
-    }
     if (this.caseCustodians.some((link) => link.caseId === caseId && link.custodianId === custodianId)) {
-      throw ApiError.conflict(`${custodian.displayName} is already a custodian on this case`);
+      throw ApiError.conflict(`${custodianId} is already a custodian on this case`);
     }
+
+    // In real-service mode the picker shows email addresses derived from the
+    // case's evidence, not the synthetic corpus IDs. Fall back to a synthetic
+    // custodian when the ID is not part of the seeded corpus.
+    const custodian =
+      this.corpus.custodians.find((candidate) => candidate.id === custodianId) ??
+      this.corpus.custodians.find((candidate) => candidate.email === custodianId) ?? {
+        id: custodianId,
+        displayName: custodianId,
+        email: custodianId,
+        department: '',
+        title: '',
+        messageCount: 0,
+      };
 
     const link: CaseCustodian = {
       caseId,
@@ -427,6 +437,7 @@ export class MockStore implements OnDestroy {
         messageId,
         subject: message.subject,
         sender: message.sender,
+        recipients: message.recipients,
         communicationType: message.communicationType,
         messageTimestamp: message.messageTimestamp,
         attachmentCount: message.attachments.length,
@@ -1470,6 +1481,7 @@ export class MockStore implements OnDestroy {
         messageId: message.id,
         subject: message.subject,
         sender: message.sender,
+        recipients: message.recipients,
         communicationType: message.communicationType,
         messageTimestamp: message.messageTimestamp,
         attachmentCount: message.attachments.length,

@@ -77,7 +77,6 @@ export class CaseDetailPage {
   protected readonly exports = signal<ExportJob[]>([]);
   protected readonly savedSearches = signal<SavedSearch[]>([]);
   protected readonly auditEntries = signal<AuditEntry[]>([]);
-  protected readonly directory = signal<Custodian[]>([]);
 
   protected readonly tab = signal<Tab>('evidence');
   protected readonly loading = signal(true);
@@ -97,9 +96,33 @@ export class CaseDetailPage {
     return status ? ALLOWED_CASE_TRANSITIONS[status] : [];
   });
 
+  /**
+   * Custodians offered for attachment are the people who actually appear on
+   * the case's evidence — as sender or recipient — rather than every person
+   * in the archive. A custodian with no connection to the communications on
+   * the case has no reason to be attached to it.
+   */
   protected readonly availableCustodians = computed(() => {
     const attached = new Set(this.custodians().map((link) => link.custodianId));
-    return this.directory().filter((custodian) => !attached.has(custodian.id));
+    const participants = new Map<string, Custodian>();
+
+    for (const item of this.evidence()) {
+      for (const identity of [item.sender, ...item.recipients]) {
+        if (!identity || participants.has(identity)) {
+          continue;
+        }
+        participants.set(identity, {
+          id: identity,
+          displayName: identity,
+          email: identity,
+          department: '',
+          title: '',
+          messageCount: 0,
+        });
+      }
+    }
+
+    return [...participants.values()].filter((c) => !attached.has(c.id));
   });
 
   protected readonly activeHolds = computed(() =>
@@ -148,10 +171,6 @@ export class CaseDetailPage {
         this.refreshExports();
         this.refreshSavedSearches();
         this.refreshAudit();
-        this.caseApi.listAllCustodians().subscribe({
-          next: (directory) => this.directory.set(directory),
-          error: () => this.directory.set([]),
-        });
       },
       error: (error: unknown) => {
         this.error.set(describeError(error));

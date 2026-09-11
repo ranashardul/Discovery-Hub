@@ -1,12 +1,15 @@
 package com.stown.casehold.service;
 
 import com.stown.casehold.api.AddCaseCommunicationsRequest;
+import com.stown.casehold.api.AddCaseCustodianRequest;
 import com.stown.casehold.api.CaseCommunicationsResponse;
+import com.stown.casehold.api.CaseCustodianResponse;
 import com.stown.casehold.api.CaseResponse;
 import com.stown.casehold.api.CommunicationRef;
 import com.stown.casehold.api.CreateCaseRequest;
 import com.stown.casehold.api.UpdateCaseRequest;
 import com.stown.casehold.domain.CaseCommunicationEntity;
+import com.stown.casehold.domain.CaseCustodianEntity;
 import com.stown.casehold.domain.CaseEntity;
 import com.stown.casehold.domain.CaseStatus;
 import com.stown.casehold.domain.HoldStatus;
@@ -16,6 +19,7 @@ import com.stown.casehold.messaging.CaseUpdatedEvent;
 import com.stown.casehold.messaging.CommunicationAddedToCaseEvent;
 import com.stown.casehold.messaging.EventOutboxWriter;
 import com.stown.casehold.repository.CaseCommunicationRepository;
+import com.stown.casehold.repository.CaseCustodianRepository;
 import com.stown.casehold.repository.CaseRepository;
 import com.stown.casehold.repository.HoldRepository;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +43,7 @@ public class CaseService {
 
     private final CaseRepository caseRepository;
     private final CaseCommunicationRepository caseCommunicationRepository;
+    private final CaseCustodianRepository caseCustodianRepository;
     private final HoldRepository holdRepository;
     private final MessageLookupService messageLookupService;
     private final EventOutboxWriter outbox;
@@ -71,7 +76,7 @@ public class CaseService {
 
         log.info("Created case id={} name={}", caseId, entity.getName());
 
-        return toResponse(entity, 0L, 0L);
+        return toResponse(entity, 0L, 0L, 0L);
     }
 
     @Transactional(readOnly = true)
@@ -84,6 +89,7 @@ public class CaseService {
                 .map(entity -> toResponse(
                         entity,
                         caseCommunicationRepository.countByCaseId(entity.getId()),
+                        caseCustodianRepository.countByCaseId(entity.getId()),
                         holdRepository.countByCaseIdAndStatus(entity.getId(), HoldStatus.ACTIVE)
                 ))
                 .toList();
@@ -95,6 +101,7 @@ public class CaseService {
         return toResponse(
                 entity,
                 caseCommunicationRepository.countByCaseId(caseId),
+                caseCustodianRepository.countByCaseId(caseId),
                 holdRepository.countByCaseIdAndStatus(caseId, HoldStatus.ACTIVE)
         );
     }
@@ -149,6 +156,7 @@ public class CaseService {
         return toResponse(
                 entity,
                 caseCommunicationRepository.countByCaseId(caseId),
+                caseCustodianRepository.countByCaseId(caseId),
                 holdRepository.countByCaseIdAndStatus(caseId, HoldStatus.ACTIVE)
         );
     }
@@ -261,6 +269,75 @@ public class CaseService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public List<CaseCustodianResponse> listCustodians(UUID caseId) {
+        requireCase(caseId);
+        return caseCustodianRepository.findByCaseIdOrderByAddedAtAsc(caseId).stream()
+                .map(this::toCustodianResponse)
+                .toList();
+    }
+
+    @Transactional
+    public CaseCustodianResponse addCustodian(UUID caseId, AddCaseCustodianRequest request) {
+        CaseEntity entity = requireCase(caseId);
+        assertMutable(entity);
+
+        if (caseCustodianRepository.existsByCaseIdAndCustodianId(caseId, request.custodianId())) {
+            throw new IllegalArgumentException(request.custodianId() + " is already a custodian on this case");
+        }
+
+        Instant now = Instant.now();
+        CaseCustodianEntity custodian = CaseCustodianEntity.builder()
+                .id(UUID.randomUUID())
+                .caseId(caseId)
+                .custodianId(request.custodianId())
+                .addedBy(request.addedBy())
+                .addedAt(now)
+                .build();
+
+        caseCustodianRepository.save(custodian);
+        entity.setUpdatedAt(now);
+        caseRepository.save(entity);
+
+        log.info("Added custodian {} to case id={}", request.custodianId(), caseId);
+
+        return toCustodianResponse(custodian);
+    }
+
+    @Transactional
+    public void removeCustodian(UUID caseId, String custodianId) {
+        CaseEntity entity = requireCase(caseId);
+        assertMutable(entity);
+
+        if (!caseCustodianRepository.existsByCaseIdAndCustodianId(caseId, custodianId)) {
+            throw new IllegalArgumentException("Custodian " + custodianId + " is not attached to this case");
+        }
+
+        caseCustodianRepository.deleteByCaseIdAndCustodianId(caseId, custodianId);
+        entity.setUpdatedAt(Instant.now());
+        caseRepository.save(entity);
+
+        log.info("Removed custodian {} from case id={}", custodianId, caseId);
+    }
+
+    private void assertMutable(CaseEntity entity) {
+        if (entity.getStatus() == CaseStatus.CLOSED) {
+            throw new IllegalArgumentException("Case is closed");
+        }
+    }
+
+    private CaseCustodianResponse toCustodianResponse(CaseCustodianEntity entity) {
+        // The archive owns display metadata; the case stores only the identity.
+        return new CaseCustodianResponse(
+                entity.getCustodianId(),
+                entity.getCustodianId(),
+                entity.getCustodianId(),
+                null,
+                entity.getAddedAt(),
+                entity.getAddedBy()
+        );
+    }
+
     private CaseEntity requireCase(UUID caseId) {
         return caseRepository.findById(caseId)
                 .orElseThrow(() -> new CaseNotFoundException(caseId.toString()));
@@ -291,6 +368,7 @@ public class CaseService {
     private static CaseResponse toResponse(
             CaseEntity entity,
             long communicationCount,
+            long custodianCount,
             long activeHoldCount
     ) {
         return new CaseResponse(
@@ -302,6 +380,7 @@ public class CaseService {
                 entity.getCreatedAt(),
                 entity.getUpdatedAt(),
                 communicationCount,
+                custodianCount,
                 activeHoldCount
         );
     }
