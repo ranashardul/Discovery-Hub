@@ -37,30 +37,10 @@
             </select>
           </label>
 
-          <label class="field">
-            <span class="field__label">Custodian (sender)</span>
-            <select formControlName="sender">
-              <option value="">Any sender</option>
-              @for (custodian of custodians(); track custodian.id) {
-                <option [value]="custodian.email">{{ custodian.displayName }}</option>
-              }
-            </select>
-          </label>
-
-          <label class="field">
-            <span class="field__label">Participant (recipient)</span>
-            <select formControlName="recipient">
-              <option value="">Any recipient</option>
-              @for (custodian of custodians(); track custodian.id) {
-                <option [value]="custodian.email">{{ custodian.displayName }}</option>
-              }
-            </select>
-          </label>
-
           <div class="field">
-            <span class="field__label">Custodian(s) — either side</span>
+            <span class="field__label">Custodian(s)</span>
             <span class="field__hint">
-              Matched against sender and recipients. Selecting more than one finds anything
+              Anyone on the message, sending or receiving. Pick several to find everything
               involving any of them.
             </span>
             <div style="display: grid; gap: 0.3rem; max-height: 9rem; overflow-y: auto">
@@ -76,6 +56,28 @@
               }
             </div>
           </div>
+
+          <label class="field">
+            <span class="field__label">Sent by</span>
+            <select formControlName="sender">
+              <option value="">Anyone</option>
+              @for (custodian of custodians(); track custodian.id) {
+                <option [value]="custodian.email">{{ custodian.displayName }}</option>
+              }
+            </select>
+            <span class="field__hint">Only when the direction matters.</span>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Sent to</span>
+            <select formControlName="recipient">
+              <option value="">Anyone</option>
+              @for (custodian of custodians(); track custodian.id) {
+                <option [value]="custodian.email">{{ custodian.displayName }}</option>
+              }
+            </select>
+            <span class="field__hint">Combined with "sent by" as AND, not OR.</span>
+          </label>
 
           <label class="field">
             <span class="field__label">Hold status</span>
