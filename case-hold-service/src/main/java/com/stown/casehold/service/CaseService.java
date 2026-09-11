@@ -162,6 +162,27 @@ public class CaseService {
     }
 
     @Transactional
+    public void removeCommunication(UUID caseId, String communicationId) {
+        CaseEntity entity = requireCase(caseId);
+        assertMutable(entity);
+
+        List<CaseCommunicationEntity> references =
+                caseCommunicationRepository.findByCaseIdOrderByAddedAtAsc(caseId).stream()
+                        .filter(item -> item.getCommunicationId().equals(communicationId))
+                        .toList();
+
+        if (references.isEmpty()) {
+            throw new IllegalArgumentException("Communication " + communicationId + " is not on this case");
+        }
+
+        caseCommunicationRepository.deleteAll(references);
+        entity.setUpdatedAt(Instant.now());
+        caseRepository.save(entity);
+
+        log.info("Removed communication {} from case id={}", communicationId, caseId);
+    }
+
+    @Transactional
     public CaseCommunicationsResponse addCommunications(
             UUID caseId,
             AddCaseCommunicationsRequest request

@@ -93,6 +93,15 @@ public class CaseController {
         return ResponseEntity.ok(caseService.listCommunications(caseId));
     }
 
+    @DeleteMapping("/{caseId}/communications/{communicationId}")
+    public ResponseEntity<Void> removeCommunication(
+            @PathVariable UUID caseId,
+            @PathVariable String communicationId
+    ) {
+        caseService.removeCommunication(caseId, communicationId);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{caseId}/custodians")
     public ResponseEntity<List<CaseCustodianResponse>> listCustodians(
             @PathVariable UUID caseId
