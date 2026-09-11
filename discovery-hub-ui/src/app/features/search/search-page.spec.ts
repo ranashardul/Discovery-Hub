@@ -69,19 +69,42 @@ describe('SearchPage', () => {
     }
   });
 
-  it('matches a custodian on either side of the conversation', async () => {
+  it('marks the matching terms in the results (FR-3.3)', async () => {
     const fixture = await open();
 
-    const checkbox = host(fixture).querySelector<HTMLInputElement>(
-      '.field .check input[type="checkbox"]',
-    )!;
-    checkbox.checked = true;
-    checkbox.dispatchEvent(new Event('change'));
+    host(fixture).querySelector<HTMLInputElement>('input[formControlName="q"]')!.value = 'escalation';
+    host(fixture)
+      .querySelector<HTMLInputElement>('input[formControlName="q"]')!
+      .dispatchEvent(new Event('input'));
     submit(fixture);
     await settle(fixture);
 
-    expect(host(fixture).textContent).not.toContain('Enter a search term');
-    expect(resultRows(fixture).length).toBeGreaterThan(0);
+    const rows = resultRows(fixture);
+    expect(rows.length).toBeGreaterThan(0);
+    // Every hit matched somewhere, so every row has something to mark. A row
+    // with no <mark> means the highlight was dropped between the API and the
+    // template, which is invisible in a screenshot of plausible-looking text.
+    for (const row of rows) {
+      expect(row.querySelectorAll('mark').length).toBeGreaterThan(0);
+    }
+  });
+
+  it('shows the subject of every hit', async () => {
+    const fixture = await open();
+
+    host(fixture).querySelector<HTMLInputElement>('input[formControlName="q"]')!.value = 'escalation';
+    host(fixture)
+      .querySelector<HTMLInputElement>('input[formControlName="q"]')!
+      .dispatchEvent(new Event('input'));
+    submit(fixture);
+    await settle(fixture);
+
+    // The title is rendered from the highlighted subject, which the HTTP
+    // client did not populate at all — so every result linked out under a
+    // blank title.
+    for (const row of resultRows(fixture)) {
+      expect(row.querySelector('a.strong')?.textContent?.trim()).toBeTruthy();
+    }
   });
 
   it('refuses a request with neither terms nor filters', async () => {

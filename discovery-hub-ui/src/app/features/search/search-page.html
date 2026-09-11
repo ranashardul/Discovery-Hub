@@ -38,44 +38,26 @@
           </label>
 
           <label class="field">
-            <span class="field__label">Custodian (sender)</span>
+            <span class="field__label">Sent by</span>
             <select formControlName="sender">
-              <option value="">Any sender</option>
+              <option value="">Anyone</option>
               @for (custodian of custodians(); track custodian.id) {
                 <option [value]="custodian.email">{{ custodian.displayName }}</option>
               }
             </select>
+            <span class="field__hint">Only when the direction matters.</span>
           </label>
 
           <label class="field">
-            <span class="field__label">Participant (recipient)</span>
+            <span class="field__label">Sent to</span>
             <select formControlName="recipient">
-              <option value="">Any recipient</option>
+              <option value="">Anyone</option>
               @for (custodian of custodians(); track custodian.id) {
                 <option [value]="custodian.email">{{ custodian.displayName }}</option>
               }
             </select>
+            <span class="field__hint">Combined with "sent by" as AND, not OR.</span>
           </label>
-
-          <div class="field">
-            <span class="field__label">Custodian(s) — either side</span>
-            <span class="field__hint">
-              Matched against sender and recipients. Selecting more than one finds anything
-              involving any of them.
-            </span>
-            <div style="display: grid; gap: 0.3rem; max-height: 9rem; overflow-y: auto">
-              @for (custodian of custodians(); track custodian.id) {
-                <label class="check">
-                  <input
-                    type="checkbox"
-                    [checked]="includesParticipant(custodian.email)"
-                    (change)="toggleParticipant(custodian.email, $any($event.target).checked)"
-                  />
-                  <span>{{ custodian.displayName }}</span>
-                </label>
-              }
-            </div>
-          </div>
 
           <label class="field">
             <span class="field__label">Hold status</span>
@@ -207,7 +189,7 @@
                         <span [innerHTML]="item.highlights.subject | highlighted"></span>
                       </a>
                       <p class="small muted" style="margin: 0.25rem 0 0">
-                        <span [innerHTML]="item.snippet | highlighted"></span>
+                        <span [innerHTML]="item.highlights.body | highlighted"></span>
                       </p>
                       <p class="small muted mono" style="margin: 0.25rem 0 0">
                         {{ item.messageId }} · thread {{ item.threadId }} · score {{ item.score }}

@@ -23,6 +23,7 @@ interface WireResultItem {
   sender: string;
   recipients: string[];
   subject: string;
+  subjectHighlight: string | null;
   snippet: string | null;
   threadId: string;
   messageTimestamp: string;
@@ -284,9 +285,15 @@ export class HttpSearchApi extends SearchApi {
       recipients: item.recipients ?? [],
       subject: item.subject,
       snippet: highlightToPlainText(item.snippet),
-      // The API returns one fragment covering subject or body, not the two
-      // separate fields the prototype produced.
-      highlights: { body: highlightToSafeMarkup(item.snippet) },
+      // Both are rendered as markup, so both go through the escaping
+      // converter — including the subject when it did not match, which
+      // arrives as null and falls back to the plain one. Passing that
+      // straight to the `highlighted` pipe would hand unescaped archived
+      // mail to bypassSecurityTrustHtml.
+      highlights: {
+        subject: highlightToSafeMarkup(item.subjectHighlight ?? item.subject),
+        body: highlightToSafeMarkup(item.snippet),
+      },
       threadId: item.threadId,
       messageTimestamp: item.messageTimestamp,
       attachmentCount: item.attachmentCount,

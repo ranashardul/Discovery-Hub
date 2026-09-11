@@ -360,6 +360,22 @@ public class MessageIndexClient {
                 .toList();
     }
 
+    /**
+     * Short fields are highlighted whole; long ones are cut to a fragment.
+     *
+     * <p>{@code number_of_fragments: 0} returns the entire field with the
+     * matches marked, which is what a subject, a sender or a recipient list
+     * needs — fragmenting those risks returning half a subject as the result
+     * title. A body is far too long to return in full, so it stays a single
+     * fragment around the match.
+     */
+    private HighlightField highlightConfig(String field) {
+        if ("body".equals(field)) {
+            return HighlightField.of(config -> config.fragmentSize(200).numberOfFragments(1));
+        }
+        return HighlightField.of(config -> config.numberOfFragments(0));
+    }
+
     public SearchResponse<SearchDocument> search(
             Query query,
             List<SortOptions> sort,
@@ -380,10 +396,7 @@ public class MessageIndexClient {
             }
 
             List<NamedValue<HighlightField>> fields = highlightFields.stream()
-                    .map(field -> NamedValue.of(
-                            field,
-                            HighlightField.of(config -> config.fragmentSize(200).numberOfFragments(1))
-                    ))
+                    .map(field -> NamedValue.of(field, highlightConfig(field)))
                     .toList();
 
             request.highlight(highlight -> highlight.fields(fields));
