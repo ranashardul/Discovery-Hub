@@ -11,8 +11,7 @@
           <span class="field__hint">Loading cases…</span>
         } @else if (cases().length === 0) {
           <span class="field__hint">
-            No open case to hold on. A hold cannot be placed on a closed or archived case, so
-            reopen one first.
+            No open case to hold on. A closed case is read-only, so reopen one first.
           </span>
         } @else {
           <select

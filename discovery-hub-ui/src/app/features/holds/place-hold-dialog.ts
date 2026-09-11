@@ -113,9 +113,8 @@ export class PlaceHoldDialog {
       return;
     }
 
-    // A hold cannot be placed on an archived case (the service refuses it),
-    // and a closed case is read-only everywhere else in the app, so neither is
-    // offered here.
+    // A closed case is read-only everywhere else in the app, so it is not
+    // offered here either.
     this.loadingCases.set(true);
     this.caseApi
       .listCases()

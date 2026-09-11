@@ -1,27 +1,25 @@
 export type MatterType = 'INVESTIGATION' | 'LITIGATION' | 'REGULATORY_INQUIRY';
 
 /**
- * Case lifecycle, matching `CaseStatus` in case-hold-service. These three
- * values are the whole vocabulary the service knows; sending anything else to
+ * Case lifecycle, matching `CaseStatus` in case-hold-service. These two values
+ * are the whole vocabulary the service knows; sending anything else to
  * `PATCH /api/v1/cases/{id}` is rejected by its `parseStatus`.
  */
-export type CaseStatus = 'OPEN' | 'CLOSED' | 'ARCHIVED';
+export type CaseStatus = 'OPEN' | 'CLOSED';
 
-export const CASE_STATUSES: readonly CaseStatus[] = ['OPEN', 'CLOSED', 'ARCHIVED'];
+export const CASE_STATUSES: readonly CaseStatus[] = ['OPEN', 'CLOSED'];
 
 /**
  * Transitions the UI offers.
  *
  * This is a **client-side affordance only**. The case service accepts any
  * status change and enforces no state machine, so this narrows the buttons a
- * reviewer sees rather than describing a guarantee. Archiving is terminal here
- * because a hold cannot be placed on an archived case (`HoldService` refuses
- * it), so there is no useful way back.
+ * reviewer sees rather than describing a guarantee. A closed case can always
+ * be reopened: nothing about closing it is irreversible.
  */
 export const ALLOWED_CASE_TRANSITIONS: Readonly<Record<CaseStatus, readonly CaseStatus[]>> = {
-  OPEN: ['CLOSED', 'ARCHIVED'],
-  CLOSED: ['OPEN', 'ARCHIVED'],
-  ARCHIVED: [],
+  OPEN: ['CLOSED'],
+  CLOSED: ['OPEN'],
 };
 
 /** Narrows a status off the wire, failing loudly rather than casting blindly. */
