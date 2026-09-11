@@ -1,0 +1,114 @@
+<app-modal
+  title="Place a legal hold"
+  subtitle="Scope by custodian and date range. Everything in scope is frozen until released."
+  (dismissed)="dismissed.emit()"
+>
+  <form [formGroup]="form" class="stack">
+    @if (needsCasePicker()) {
+      <label class="field">
+        <span class="field__label">Case</span>
+        @if (loadingCases()) {
+          <span class="field__hint">Loading cases…</span>
+        } @else if (cases().length === 0) {
+          <span class="field__hint">
+            No open case to hold on. A hold cannot be placed on a closed or archived case, so
+            reopen one first.
+          </span>
+        } @else {
+          <select
+            [value]="selectedCaseId()"
+            (change)="selectCase($any($event.target).value)"
+            aria-label="Case to place the hold on"
+          >
+            <option value="">Choose a case…</option>
+            @for (item of cases(); track item.id) {
+              <option [value]="item.id">{{ item.caseNumber }} — {{ item.name }}</option>
+            }
+          </select>
+        }
+        @if (targetCase(); as target) {
+          <span class="field__hint">
+            {{ target.evidenceCount | number }} evidence item(s),
+            {{ target.activeHoldCount }} active hold(s) ·
+            <a [routerLink]="['/cases', target.id]">Open this case</a>
+          </span>
+        }
+      </label>
+    }
+
+    <label class="field">
+      <span class="field__label">Reason</span>
+      <input type="text" formControlName="reason" />
+      @if (form.controls.reason.touched && form.controls.reason.invalid) {
+        <span class="field__error">A reason is required for the chain of custody.</span>
+      }
+    </label>
+
+    <div class="field">
+      <span class="field__label">Custodians in scope</span>
+      <span class="field__hint">
+        Matched against the sender and recipients of every message. Selecting more than one holds
+        anything involving any of them.
+      </span>
+      <div
+        class="stack--sm"
+        style="display: grid; gap: 0.3rem; max-height: 14rem; overflow-y: auto"
+      >
+        @for (custodian of directory(); track custodian.id) {
+          <label class="check">
+            <input
+              type="checkbox"
+              [checked]="includes(custodian.id)"
+              (change)="toggleCustodian(custodian.id, $any($event.target).checked)"
+            />
+            <span>
+              {{ custodian.displayName }}
+              <span class="muted small">{{ custodian.messageCount | number }} sent</span>
+            </span>
+          </label>
+        }
+      </div>
+      @if (selectedCount() === 0) {
+        <span class="field__hint">Select at least one custodian to scope the hold.</span>
+      }
+    </div>
+
+    <div class="form-grid">
+      <label class="field">
+        <span class="field__label">From date</span>
+        <input type="date" formControlName="after" />
+      </label>
+      <label class="field">
+        <span class="field__label">To date</span>
+        <input type="date" formControlName="before" />
+      </label>
+    </div>
+
+    @if (searchTermsSupported) {
+      <label class="field">
+        <span class="field__label">Search terms (optional)</span>
+        <input type="text" formControlName="searchTerms" placeholder="e.g. restricted list" />
+        <span class="field__hint">
+          Leave blank to hold everything for those custodians in the date range.
+        </span>
+      </label>
+    }
+
+    @if (scopePreview() !== null) {
+      <div class="banner banner--info">
+        This scope currently covers <strong>{{ scopePreview() | number }}</strong> message(s).
+        Placing the hold returns immediately and propagates in the background.
+      </div>
+    }
+  </form>
+
+  <div modalActions>
+    <button type="button" class="btn" (click)="dismissed.emit()">Cancel</button>
+    <button type="button" class="btn" [disabled]="busy()" (click)="previewScope()">
+      Preview scope
+    </button>
+    <button type="button" class="btn btn--danger" [disabled]="busy()" (click)="place()">
+      Place hold
+    </button>
+  </div>
+</app-modal>

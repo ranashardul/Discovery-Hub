@@ -278,8 +278,8 @@
           <button
             type="button"
             class="btn btn--sm btn--primary"
-            [disabled]="readOnly() || directory().length === 0"
-            (click)="openHoldModal()"
+            [disabled]="readOnly()"
+            (click)="holdModalOpen.set(true)"
           >
             Place hold
           </button>
@@ -532,87 +532,10 @@
   </app-modal>
 }
 
-@if (holdModalOpen()) {
-  <app-modal
-    title="Place a legal hold"
-    subtitle="Scope by custodian and date range. Everything in scope is frozen until released."
+@if (holdModalOpen() && legalCase()) {
+  <app-place-hold-dialog
+    [presetCase]="legalCase()"
+    (placed)="onHoldPlaced($event)"
     (dismissed)="holdModalOpen.set(false)"
-  >
-    <form [formGroup]="holdForm" class="stack">
-      <label class="field">
-        <span class="field__label">Reason</span>
-        <input type="text" formControlName="reason" />
-        @if (holdForm.controls.reason.touched && holdForm.controls.reason.invalid) {
-          <span class="field__error">A reason is required for the chain of custody.</span>
-        }
-      </label>
-
-      <div class="field">
-        <span class="field__label">Custodians in scope</span>
-        <span class="field__hint">
-          Matched against the sender and recipients of every message. Selecting more than one
-          holds anything involving any of them.
-        </span>
-        <div
-          class="stack--sm"
-          style="display: grid; gap: 0.3rem; max-height: 14rem; overflow-y: auto"
-        >
-          @for (custodian of directory(); track custodian.id) {
-            <label class="check">
-              <input
-                type="checkbox"
-                [checked]="holdIncludes(custodian.id)"
-                (change)="toggleHoldCustodian(custodian.id, $any($event.target).checked)"
-              />
-              <span>
-                {{ custodian.displayName }}
-                <span class="muted small">{{ custodian.messageCount | number }} sent</span>
-              </span>
-            </label>
-          }
-        </div>
-        @if (holdForm.getRawValue().custodianIds.length === 0) {
-          <span class="field__hint">Select at least one custodian to scope the hold.</span>
-        }
-      </div>
-
-      <div class="form-grid">
-        <label class="field">
-          <span class="field__label">From date</span>
-          <input type="date" formControlName="after" />
-        </label>
-        <label class="field">
-          <span class="field__label">To date</span>
-          <input type="date" formControlName="before" />
-        </label>
-      </div>
-
-      @if (searchTermsSupported) {
-        <label class="field">
-          <span class="field__label">Search terms (optional)</span>
-          <input type="text" formControlName="searchTerms" placeholder="e.g. restricted list" />
-          <span class="field__hint">
-            Leave blank to hold everything for those custodians in the date range.
-          </span>
-        </label>
-      }
-
-      @if (scopePreview() !== null) {
-        <div class="banner banner--info">
-          This scope currently covers <strong>{{ scopePreview() | number }}</strong> message(s).
-          Placing the hold returns immediately and propagates in the background.
-        </div>
-      }
-    </form>
-
-    <div modalActions>
-      <button type="button" class="btn" (click)="holdModalOpen.set(false)">Cancel</button>
-      <button type="button" class="btn" [disabled]="busy()" (click)="previewScope()">
-        Preview scope
-      </button>
-      <button type="button" class="btn btn--danger" [disabled]="busy()" (click)="placeHold()">
-        Place hold
-      </button>
-    </div>
-  </app-modal>
+  />
 }
