@@ -32,6 +32,7 @@ describe('App shell', () => {
       'Exports',
       'Retention',
       'Audit trail',
+      'Retention demo',
     ]);
   });
 });

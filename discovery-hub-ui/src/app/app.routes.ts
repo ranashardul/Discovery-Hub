@@ -42,6 +42,12 @@ export const routes: Routes = [
     loadComponent: () => import('./features/retention/retention-page').then((m) => m.RetentionPage),
   },
   {
+    path: 'demo',
+    title: 'Retention demo — DiscoveryHub',
+    loadComponent: () =>
+      import('./features/demo/retention-demo-page').then((m) => m.RetentionDemoPage),
+  },
+  {
     path: 'audit',
     title: 'Audit trail — DiscoveryHub',
     loadComponent: () => import('./features/audit/audit-page').then((m) => m.AuditPage),

@@ -3,6 +3,7 @@ import { environment } from '../../../environments/environment';
 import {
   MockAuditApi,
   MockCaseApi,
+  MockDemoApi,
   MockExportApi,
   MockHoldApi,
   MockPlatformApi,
@@ -10,9 +11,11 @@ import {
 } from '../mock/mock-apis';
 import { AuditApi } from './audit-api';
 import { CaseApi } from './case-api';
+import { DemoApi } from './demo-api';
 import { ExportApi } from './export-api';
 import { HttpAuditApi } from './http/http-audit-api';
 import { HttpCaseApi } from './http/http-case-api';
+import { HttpDemoApi } from './http/http-demo-api';
 import { HttpExportApi } from './http/http-export-api';
 import { HttpHoldApi } from './http/http-hold-api';
 import { HttpPlatformApi } from './http/http-platform-api';
@@ -41,6 +44,7 @@ const MOCKS: Provider[] = [
   MockExportApi,
   MockAuditApi,
   MockPlatformApi,
+  MockDemoApi,
 ];
 
 /**
@@ -61,6 +65,7 @@ export function provideMockDiscoveryHubApi(): Provider[] {
     { provide: ExportApi, useExisting: MockExportApi },
     { provide: AuditApi, useExisting: MockAuditApi },
     { provide: PlatformApi, useExisting: MockPlatformApi },
+    { provide: DemoApi, useExisting: MockDemoApi },
   ];
 }
 
@@ -79,5 +84,6 @@ export function provideDiscoveryHubApi(): Provider[] {
     { provide: ExportApi, useClass: HttpExportApi },
     { provide: AuditApi, useClass: HttpAuditApi },
     { provide: PlatformApi, useClass: HttpPlatformApi },
+    { provide: DemoApi, useClass: HttpDemoApi },
   ];
 }

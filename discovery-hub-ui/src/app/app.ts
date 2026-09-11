@@ -36,6 +36,7 @@ export class App {
     { path: '/exports', label: 'Exports', hint: 'Evidence packages and manifests', icon: 'package' },
     { path: '/retention', label: 'Retention', hint: 'Policies and disposition runs', icon: 'clock' },
     { path: '/audit', label: 'Audit trail', hint: 'Append-only chain of custody', icon: 'shield' },
+    { path: '/demo', label: 'Retention demo', hint: 'Expire and dispose one message', icon: 'timer' },
   ];
 
   /** Polled so a simulated outage shows up in the header without a reload. */
@@ -59,6 +60,7 @@ export class App {
     package: 'M12 3l9 5v8l-9 5-9-5V8zM3 8l9 5 9-5M12 13v8',
     clock: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 4v5l4 2',
     shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
+    timer: 'M10 3h4M12 7v6l3 2M5 13a7 7 0 1 0 14 0 7 7 0 0 0-14 0z',
   };
 
   protected toggleNav(): void {
