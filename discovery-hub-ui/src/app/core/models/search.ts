@@ -8,6 +8,13 @@ export interface SearchCriteria {
   communicationType?: CommunicationType | null;
   sender?: string | null;
   recipient?: string | null;
+  /**
+   * Custodians to match on either side of a conversation (FR-3.2). Sent as a
+   * repeated `participant` parameter; several are OR'd, which is what
+   * "messages involving any of these people" means and what `sender` AND
+   * `recipient` cannot express.
+   */
+  participants?: string[] | null;
   threadId?: string | null;
   dispositionStatus?: DispositionStatus | null;
   onHold?: boolean | null;
@@ -19,6 +26,32 @@ export interface SearchCriteria {
   sort?: SearchSort;
   from?: number;
   size?: number;
+}
+
+/**
+ * Whether a criteria set narrows the archive at all.
+ *
+ * Mirrors `SearchCriteria.hasAnyFilter` in the search service, which is what
+ * decides there whether a request without `q` is answerable: "everything this
+ * custodian sent" has no text to score against, but a request with neither
+ * terms nor filters asks to page the whole corpus and is refused. Shared so
+ * the page, the in-memory backend and the service cannot drift into
+ * disagreeing about which requests are valid.
+ */
+export function hasAnyFilter(criteria: SearchCriteria): boolean {
+  return !!(
+    criteria.communicationType ||
+    criteria.sender ||
+    criteria.recipient ||
+    criteria.participants?.length ||
+    criteria.threadId ||
+    criteria.dispositionStatus ||
+    criteria.onHold === true ||
+    criteria.onHold === false ||
+    criteria.hasAttachments === true ||
+    criteria.after ||
+    criteria.before
+  );
 }
 
 /**

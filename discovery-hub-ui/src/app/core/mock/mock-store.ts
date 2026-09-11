@@ -25,7 +25,13 @@ import {
   RetentionPolicy,
   ServiceStatus,
 } from '../models/retention';
-import { SavedSearch, SearchCriteria, SearchResponse, SearchStats } from '../models/search';
+import {
+  SavedSearch,
+  SearchCriteria,
+  SearchResponse,
+  SearchStats,
+  hasAnyFilter,
+} from '../models/search';
 import { Corpus, generateCorpus } from './corpus';
 import { ACTORS, CASE_SEEDS } from './corpus-vocabulary';
 import { SeededRandom } from './random';
@@ -116,29 +122,39 @@ export class MockStore implements OnDestroy {
   // ---------------------------------------------------------------- search
 
   search(criteria: SearchCriteria, options: { audit?: boolean } = {}): SearchResponse {
-    if (!criteria.q || !criteria.q.trim()) {
-      throw ApiError.badRequest("Query parameter 'q' is required and must not be blank", 'q');
+    // Filters alone are a valid question — "everything this custodian sent"
+    // has no text to match on — so only the request that narrows nothing at
+    // all is refused, which is what the search service does.
+    const query = criteria.q?.trim() ?? '';
+    if (!query && !hasAnyFilter(criteria)) {
+      throw ApiError.badRequest(
+        "Query parameter 'q' is required unless at least one filter is supplied",
+        'q',
+      );
     }
 
     const started = performance.now();
     const from = Math.max(0, criteria.from ?? 0);
     const size = Math.min(100, Math.max(1, criteria.size ?? 20));
     const hits = executeSearch(this.corpus, criteria);
-    const terms = parseQuery(criteria.q);
+    const terms = parseQuery(query);
 
     const results = hits
       .slice(from, from + size)
       .map((hit) => toResultItem(this.corpus.messages[hit.index], hit.score, terms));
 
     if (options.audit) {
-      this.append('SEARCH_EXECUTED', 'SEARCH', criteria.q, `Query "${criteria.q}"`, {
+      // A filter-only search has no terms to name it by, and the full
+      // criteria set is recorded either way.
+      const label = query ? `Query "${query}"` : 'Filters only';
+      this.append('SEARCH_EXECUTED', 'SEARCH', query || 'filters', label, {
         summary: `Search executed — ${hits.length} matching messages`,
         after: { criteria: criteria as unknown as Record<string, unknown>, total: hits.length },
       });
     }
 
     return {
-      query: criteria.q,
+      query,
       total: hits.length,
       from,
       size,

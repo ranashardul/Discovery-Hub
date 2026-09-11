@@ -99,6 +99,15 @@ function matchesFilters(message: Message, criteria: SearchCriteria): boolean {
       return false;
     }
   }
+  // Several custodians are an OR across both sides of the conversation, which
+  // is what the search service's repeated `participant` parameter does.
+  if (criteria.participants && criteria.participants.length > 0) {
+    const identities = criteria.participants.map((participant) => participant.toLowerCase());
+    const involved = [message.sender, ...message.recipients].map((party) => party.toLowerCase());
+    if (!identities.some((identity) => involved.includes(identity))) {
+      return false;
+    }
+  }
   if (criteria.onHold !== null && criteria.onHold !== undefined) {
     if (criteria.onHold !== message.holdCount > 0) {
       return false;

@@ -8,7 +8,7 @@ import { SearchApi } from '../../core/api/search-api';
 import { describeError } from '../../core/api/api-error';
 import { LegalCase } from '../../core/models/case';
 import { Custodian } from '../../core/models/message';
-import { SearchCriteria, SearchResponse, SearchSort } from '../../core/models/search';
+import { SearchCriteria, SearchResponse, SearchSort, hasAnyFilter } from '../../core/models/search';
 import { ToastService } from '../../shared/notifications/toast.service';
 import { HighlightedPipe } from '../../shared/pipes/format.pipes';
 import { Modal } from '../../shared/ui/modal';
@@ -56,6 +56,7 @@ export class SearchPage {
     communicationType: '',
     sender: '',
     recipient: '',
+    participants: [[] as string[]],
     hasAttachments: false,
     onHold: '',
     after: '',
@@ -112,20 +113,26 @@ export class SearchPage {
     });
 
     // Saved searches and hold scopes deep-link into this page, so a query
-    // string is treated as a criteria set to run immediately.
+    // string is treated as a criteria set to run immediately. A hold is
+    // scoped by custodians and dates and often carries no search terms at
+    // all, so this cannot be gated on `q` alone or those links land on an
+    // empty page.
     const params = inject(ActivatedRoute).snapshot.queryParamMap;
-    if (params.get('q')) {
-      this.applyCriteria({
-        q: params.get('q') ?? '',
-        communicationType: params.get('communicationType') as 'EMAIL' | 'CHAT' | null,
-        sender: params.get('sender'),
-        recipient: params.get('recipient'),
-        onHold: params.get('onHold') === null ? null : params.get('onHold') === 'true',
-        hasAttachments: params.get('hasAttachments') === 'true' ? true : null,
-        after: params.get('after'),
-        before: params.get('before'),
-        sort: (params.get('sort') as SearchSort | null) ?? 'relevance',
-      });
+    const linked: SearchCriteria = {
+      q: params.get('q') ?? '',
+      communicationType: params.get('communicationType') as 'EMAIL' | 'CHAT' | null,
+      sender: params.get('sender'),
+      recipient: params.get('recipient'),
+      participants: params.getAll('participant'),
+      onHold: params.get('onHold') === null ? null : params.get('onHold') === 'true',
+      hasAttachments: params.get('hasAttachments') === 'true' ? true : null,
+      after: params.get('after'),
+      before: params.get('before'),
+      sort: (params.get('sort') as SearchSort | null) ?? 'relevance',
+    };
+
+    if (linked.q || hasAnyFilter(linked)) {
+      this.applyCriteria(linked);
     }
   }
 
@@ -135,7 +142,7 @@ export class SearchPage {
   }
 
   protected reset(): void {
-    this.form.reset({ sort: 'relevance', size: 20, hasAttachments: false });
+    this.form.reset({ sort: 'relevance', size: 20, hasAttachments: false, participants: [] });
     this.response.set(null);
     this.error.set(null);
     this.selected.set(new Set());
@@ -157,6 +164,7 @@ export class SearchPage {
       communicationType: criteria.communicationType ?? '',
       sender: criteria.sender ?? '',
       recipient: criteria.recipient ?? '',
+      participants: criteria.participants ?? [],
       hasAttachments: criteria.hasAttachments ?? false,
       onHold: criteria.onHold === null || criteria.onHold === undefined ? '' : String(criteria.onHold),
       after: criteria.after ? criteria.after.slice(0, 10) : '',
@@ -165,6 +173,20 @@ export class SearchPage {
       size: criteria.size ?? 20,
     });
     this.submit();
+  }
+
+  protected includesParticipant(identity: string): boolean {
+    return this.form.getRawValue().participants.includes(identity);
+  }
+
+  protected toggleParticipant(identity: string, checked: boolean): void {
+    const current = new Set(this.form.getRawValue().participants);
+    if (checked) {
+      current.add(identity);
+    } else {
+      current.delete(identity);
+    }
+    this.form.patchValue({ participants: [...current] });
   }
 
   protected toggleSelection(messageId: string): void {
@@ -213,9 +235,34 @@ export class SearchPage {
     }
     this.saveForm.setValue({
       caseId: this.openCases()[0].id,
-      name: this.form.getRawValue().q.slice(0, 60),
+      name: this.suggestedName().slice(0, 60),
     });
     this.saveModalOpen.set(true);
+  }
+
+  /**
+   * A default name for the saved search. A filter-only search has no terms to
+   * name itself after, so the filters stand in rather than leaving the field
+   * blank and failing validation on submit.
+   */
+  private suggestedName(): string {
+    const value = this.form.getRawValue();
+    if (value.q.trim()) {
+      return value.q.trim();
+    }
+
+    const parts = [
+      value.communicationType,
+      value.sender && `from ${value.sender}`,
+      value.recipient && `to ${value.recipient}`,
+      value.participants.length > 0 && `involving ${value.participants.join(', ')}`,
+      value.onHold === 'true' && 'on hold',
+      value.hasAttachments && 'with attachments',
+      value.after && `after ${value.after}`,
+      value.before && `before ${value.before}`,
+    ].filter(Boolean);
+
+    return parts.length > 0 ? parts.join(' · ') : 'Untitled search';
   }
 
   protected async confirmAddEvidence(): Promise<void> {
@@ -280,16 +327,21 @@ export class SearchPage {
 
   protected criteria(): SearchCriteria {
     const value = this.form.getRawValue();
+    const q = value.q.trim();
     return {
-      q: value.q.trim(),
+      q,
       communicationType: value.communicationType ? (value.communicationType as 'EMAIL' | 'CHAT') : null,
       sender: value.sender.trim() || null,
       recipient: value.recipient.trim() || null,
+      participants: value.participants.length > 0 ? [...value.participants] : null,
       hasAttachments: value.hasAttachments ? true : null,
       onHold: value.onHold === '' ? null : value.onHold === 'true',
       after: value.after ? new Date(`${value.after}T00:00:00Z`).toISOString() : null,
       before: value.before ? new Date(`${value.before}T23:59:59Z`).toISOString() : null,
-      sort: value.sort,
+      // Nothing scores without text, so the service silently orders a
+      // filter-only search by date. Asking for that explicitly keeps the
+      // "sorted by" line on the results honest.
+      sort: !q && value.sort === 'relevance' ? 'newest' : value.sort,
       from: this.from(),
       size: Number(value.size),
     };
@@ -297,8 +349,11 @@ export class SearchPage {
 
   private run(): void {
     const criteria = this.criteria();
-    if (!criteria.q) {
-      this.error.set('Enter at least one search term.');
+    // The service accepts filters without text — "everything this custodian
+    // sent" has no term to match on — so the only request worth refusing is
+    // the empty one, which asks to page the whole archive.
+    if (!criteria.q && !hasAnyFilter(criteria)) {
+      this.error.set('Enter a search term, or choose at least one filter.');
       this.response.set(null);
       return;
     }

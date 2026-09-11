@@ -248,6 +248,7 @@ export class HttpSearchApi extends SearchApi {
       communicationType: criteria.communicationType,
       sender: criteria.sender,
       recipient: criteria.recipient,
+      participant: criteria.participants,
       threadId: criteria.threadId,
       dispositionStatus: criteria.dispositionStatus,
       onHold: criteria.onHold,

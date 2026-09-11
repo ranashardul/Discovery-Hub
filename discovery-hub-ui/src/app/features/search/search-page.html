@@ -57,6 +57,26 @@
             </select>
           </label>
 
+          <div class="field">
+            <span class="field__label">Custodian(s) — either side</span>
+            <span class="field__hint">
+              Matched against sender and recipients. Selecting more than one finds anything
+              involving any of them.
+            </span>
+            <div style="display: grid; gap: 0.3rem; max-height: 9rem; overflow-y: auto">
+              @for (custodian of custodians(); track custodian.id) {
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    [checked]="includesParticipant(custodian.email)"
+                    (change)="toggleParticipant(custodian.email, $any($event.target).checked)"
+                  />
+                  <span>{{ custodian.displayName }}</span>
+                </label>
+              }
+            </div>
+          </div>
+
           <label class="field">
             <span class="field__label">Hold status</span>
             <select formControlName="onHold">
