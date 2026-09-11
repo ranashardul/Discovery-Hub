@@ -32,4 +32,11 @@ public class IngestionRequestedEvent {
     private String threadId;
 
     private List<StagedAttachment> attachments;
+
+    /**
+     * Per-message retention in minutes, or null to use the configured policy.
+     * Validated by the API before publishing, and clamped again by the worker
+     * because a replayed event can outlive the configuration that accepted it.
+     */
+    private Integer retentionMinutes;
 }

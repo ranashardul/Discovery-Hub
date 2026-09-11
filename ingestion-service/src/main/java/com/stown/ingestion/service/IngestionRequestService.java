@@ -38,11 +38,18 @@ public class IngestionRequestService {
     private final HashService hashService;
     private final S3StorageService storageService;
     private final KafkaTemplate<String, IngestionRequestedEvent> kafkaTemplate;
+    private final RetentionPolicy retentionPolicy;
 
     public record AcceptedRequest(IngestionRequestDocument request, boolean duplicate) {
     }
 
     public AcceptedRequest accept(IngestionRequest request) {
+        // Rejected before anything is staged or published: an unusable
+        // retention request should cost nothing and name its own field,
+        // rather than failing later in the worker where the caller cannot
+        // see it.
+        retentionPolicy.messageOverride(request.getRetentionMinutes());
+
         String deduplicationKey = hashService.calculateDeduplicationKey(request);
 
         Optional<IngestionRequestDocument> existing = findExisting(request, deduplicationKey);
@@ -205,6 +212,7 @@ public class IngestionRequestService {
                 .messageTimestamp(request.getMessageTimestamp())
                 .threadId(request.getThreadId())
                 .attachments(document.getStagedAttachments())
+                .retentionMinutes(request.getRetentionMinutes())
                 .build();
 
         kafkaTemplate

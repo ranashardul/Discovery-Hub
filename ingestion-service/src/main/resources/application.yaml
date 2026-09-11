@@ -86,6 +86,13 @@ app:
     min-period: ${RETENTION_MIN_PERIOD:24h}
     allow-short-retention: ${ALLOW_SHORT_RETENTION:false}
 
+    # A single message may carry its own retention, which is how disposition
+    # is demonstrated without shortening a whole type's period and expiring
+    # the corpus with it. Bounded, because this is for a demo rather than for
+    # expressing a retention schedule.
+    message-override-enabled: ${RETENTION_MESSAGE_OVERRIDE_ENABLED:true}
+    message-override-max: ${RETENTION_MESSAGE_OVERRIDE_MAX:5m}
+
     batch-size: ${DISPOSITION_BATCH_SIZE:200}
     max-deletes-per-run: ${DISPOSITION_MAX_DELETES:500}
     disposition-interval-ms: ${DISPOSITION_INTERVAL_MS:60000}

@@ -78,6 +78,15 @@ class IngestionWorkerTest {
         when(attachmentStorageService.materialize(anyString(), any())).thenReturn(List.of());
         when(retentionPolicy.expiryFor(anyString(), any(Instant.class)))
                 .thenAnswer(invocation -> ((Instant) invocation.getArgument(1)).plusSeconds(60));
+        // The worker asks for the expiry through the overload that takes a
+        // per-message period; lenient because not every test reaches it.
+        org.mockito.Mockito.lenient()
+                .when(retentionPolicy.expiryFor(anyString(), any(Instant.class), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> {
+                    Instant now = invocation.getArgument(1);
+                    Integer minutes = invocation.getArgument(2);
+                    return minutes == null ? now.plusSeconds(60) : now.plusSeconds(minutes * 60L);
+                });
     }
 
     @Test
@@ -158,11 +167,64 @@ class IngestionWorkerTest {
         worker.onIngestionRequested(event);
 
         // The period must be resolved per type, not hardcoded.
-        verify(retentionPolicy).expiryFor(org.mockito.ArgumentMatchers.eq("CHAT"), any(Instant.class));
+        verify(retentionPolicy).expiryFor(
+                org.mockito.ArgumentMatchers.eq("CHAT"),
+                any(Instant.class),
+                org.mockito.ArgumentMatchers.isNull()
+        );
 
         ArgumentCaptor<MessageDocument> captor = ArgumentCaptor.forClass(MessageDocument.class);
         verify(messageRepository).insert(captor.capture());
         assertThat(captor.getValue().getRetentionUntil()).isNotNull();
+    }
+
+    /**
+     * A per-message period is what makes a disposition demo possible against
+     * a populated archive: it expires one message without shortening the
+     * period for its whole communication type, which would make every stored
+     * message of that type a deletion candidate on the next run.
+     */
+    @Test
+    void appliesAPerMessageRetentionPeriodWhenTheRequestCarriedOne() {
+        IngestionRequestDocument request = request("req-5b", IngestionStatus.RECEIVED, null);
+        when(requestRepository.findById("req-5b")).thenReturn(Optional.of(request));
+        when(messageRepository.findByDeduplicationKey(anyString())).thenReturn(Optional.empty());
+
+        IngestionRequestedEvent event = event("req-5b", "dedup-5b", null);
+        event.setRetentionMinutes(2);
+
+        worker.onIngestionRequested(event);
+
+        verify(retentionPolicy).expiryFor(
+                anyString(),
+                any(Instant.class),
+                org.mockito.ArgumentMatchers.eq(2)
+        );
+    }
+
+    /**
+     * Kafka keeps an accepted event, so one can be replayed after the
+     * configuration that allowed its period was turned off. Refusing to
+     * archive the message would be worse than retaining it for longer than
+     * was asked, so the policy period applies instead.
+     */
+    @Test
+    void fallsBackToThePolicyWhenAReplayedOverrideIsNoLongerPermitted() {
+        IngestionRequestDocument request = request("req-5c", IngestionStatus.RECEIVED, null);
+        when(requestRepository.findById("req-5c")).thenReturn(Optional.of(request));
+        when(messageRepository.findByDeduplicationKey(anyString())).thenReturn(Optional.empty());
+        when(retentionPolicy.expiryFor(anyString(), any(Instant.class), org.mockito.ArgumentMatchers.eq(9)))
+                .thenThrow(new IllegalArgumentException("per-message retention is disabled"));
+
+        IngestionRequestedEvent event = event("req-5c", "dedup-5c", null);
+        event.setRetentionMinutes(9);
+
+        worker.onIngestionRequested(event);
+
+        ArgumentCaptor<MessageDocument> captor = ArgumentCaptor.forClass(MessageDocument.class);
+        verify(messageRepository).insert(captor.capture());
+        assertThat(captor.getValue().getRetentionUntil()).isNotNull();
+        verify(retentionPolicy).expiryFor(anyString(), any(Instant.class));
     }
 
     @Test

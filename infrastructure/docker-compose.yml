@@ -147,6 +147,11 @@ services:
       RETENTION_DEFAULT: ${RETENTION_DEFAULT:-2555d}
       RETENTION_MIN_PERIOD: ${RETENTION_MIN_PERIOD:-24h}
       ALLOW_SHORT_RETENTION: ${ALLOW_SHORT_RETENTION:-false}
+      # A single message may carry its own retention period, which is how the
+      # retention demo expires one message without shortening a whole type's
+      # period and taking the corpus with it on the next run.
+      RETENTION_MESSAGE_OVERRIDE_ENABLED: ${RETENTION_MESSAGE_OVERRIDE_ENABLED:-true}
+      RETENTION_MESSAGE_OVERRIDE_MAX: ${RETENTION_MESSAGE_OVERRIDE_MAX:-5m}
       DISPOSITION_INTERVAL_MS: ${DISPOSITION_INTERVAL_MS:-60000}
       DISPOSITION_BATCH_SIZE: ${DISPOSITION_BATCH_SIZE:-200}
       DISPOSITION_MAX_DELETES: ${DISPOSITION_MAX_DELETES:-500}

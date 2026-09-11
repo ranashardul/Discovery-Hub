@@ -43,6 +43,26 @@ public class RetentionProperties {
     /** Permits periods below {@link #minPeriod}. Demo only. */
     private boolean allowShortRetention = false;
 
+    /**
+     * Whether a single message may carry its own retention period, set on the
+     * ingestion request.
+     *
+     * <p>Separate from {@link #allowShortRetention} because the two have very
+     * different blast radii. Shortening a type's period expires every message
+     * of that type already in the archive; a per-message period expires one
+     * message and cannot touch anything that was ingested before it. That is
+     * what makes a retention demo safe to run against a populated archive,
+     * and why this is allowed by default while the policy floor is not.
+     */
+    private boolean messageOverrideEnabled = true;
+
+    /**
+     * Longest per-message retention that may be requested. Short by design:
+     * this is for demonstrating disposition inside a presentation, not for
+     * expressing a retention schedule.
+     */
+    private Duration messageOverrideMax = Duration.ofMinutes(5);
+
     /** Documents examined per run. */
     private int batchSize = 200;
 

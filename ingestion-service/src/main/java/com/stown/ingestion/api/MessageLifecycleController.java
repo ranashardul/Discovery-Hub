@@ -6,6 +6,7 @@ import com.stown.ingestion.repository.MessageRepository;
 import com.stown.ingestion.service.DispositionService;
 import com.stown.ingestion.service.MessageNotFoundException;
 import com.stown.ingestion.service.RetentionPolicy;
+import com.stown.ingestion.service.StorageProofService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -44,6 +45,7 @@ public class MessageLifecycleController {
     private final DispositionRunRepository runRepository;
     private final DispositionService dispositionService;
     private final RetentionPolicy retentionPolicy;
+    private final StorageProofService storageProofService;
 
     /** Retention countdown and hold state for one message. */
     @GetMapping("/messages/{messageId}/retention")
@@ -52,6 +54,21 @@ public class MessageLifecycleController {
                 .map(message -> RetentionStatusResponse.from(message, Instant.now()))
                 .map(ResponseEntity::ok)
                 .orElseThrow(() -> new MessageNotFoundException(messageId));
+    }
+
+    /**
+     * Whether the message and its attachment binaries still exist, in MongoDB
+     * and in object storage respectively.
+     *
+     * <p>Answerable after disposition, unlike every other endpoint here,
+     * because the object keys are read from the disposition audit once the
+     * document is gone. Without this, a demo can show the document
+     * disappearing but not the binaries, and orphaned objects in S3 would be
+     * indistinguishable from a complete purge.
+     */
+    @GetMapping("/messages/{messageId}/storage")
+    public ResponseEntity<StorageProofResponse> storageProof(@PathVariable String messageId) {
+        return ResponseEntity.ok(storageProofService.describe(messageId));
     }
 
     /**
