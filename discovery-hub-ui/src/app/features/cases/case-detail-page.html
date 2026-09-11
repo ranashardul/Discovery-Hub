@@ -217,7 +217,7 @@
           @if (custodians().length === 0) {
             <app-empty
               title="No custodians attached"
-              hint="Attaching a custodian records them on the matter; a hold is scoped from the archive directory and does not require it."
+              hint="Custodians are drawn from the people on the case's evidence. Add evidence first, then attach the relevant senders and recipients."
             />
           } @else {
             <div class="table-wrap">
@@ -499,26 +499,34 @@
 @if (custodianModalOpen()) {
   <app-modal
     title="Attach a custodian"
-    subtitle="Only attached custodians can be used to scope a hold."
+    subtitle="Only people on the case's evidence can be attached as custodians."
     (dismissed)="custodianModalOpen.set(false)"
   >
     <form [formGroup]="custodianForm" class="stack">
-      <label class="field">
-        <span class="field__label">Custodian</span>
-        <select formControlName="custodianId">
-          <option value="">Select…</option>
-          @for (custodian of availableCustodians(); track custodian.id) {
-            <option [value]="custodian.id">
-              {{ custodian.displayName }} — {{ custodian.department }} ({{ custodian.messageCount }} msgs)
-            </option>
-          }
-        </select>
-      </label>
+      @if (availableCustodians().length === 0) {
+        <p class="muted small">
+          No participants found in the case's evidence. Add messages as evidence
+          first — the senders and recipients on those messages become available
+          to attach as custodians.
+        </p>
+      } @else {
+        <label class="field">
+          <span class="field__label">Custodian</span>
+          <select formControlName="custodianId">
+            <option value="">Select…</option>
+            @for (custodian of availableCustodians(); track custodian.id) {
+              <option [value]="custodian.id">
+                {{ custodian.displayName }}
+              </option>
+            }
+          </select>
+        </label>
+      }
     </form>
 
     <div modalActions>
       <button type="button" class="btn" (click)="custodianModalOpen.set(false)">Cancel</button>
-      <button type="button" class="btn btn--primary" [disabled]="busy()" (click)="addCustodian()">
+      <button type="button" class="btn btn--primary" [disabled]="busy() || availableCustodians().length === 0" (click)="addCustodian()">
         Attach
       </button>
     </div>

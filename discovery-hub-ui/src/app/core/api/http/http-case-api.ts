@@ -34,6 +34,7 @@ interface WireCommunicationItem {
   message: {
     subject?: string | null;
     sender?: string | null;
+    recipients?: string[] | null;
     messageTimestamp?: string | null;
     attachmentCount?: number | null;
     communicationType?: string | null;
@@ -233,6 +234,7 @@ export class HttpCaseApi extends CaseApi {
       // existed. The list still shows it, because the case recorded it.
       subject: message.subject ?? '(message unavailable)',
       sender: message.sender ?? '',
+      recipients: message.recipients ?? [],
       communicationType: message.communicationType ?? item.communicationType ?? 'EMAIL',
       messageTimestamp: message.messageTimestamp ?? item.addedAt,
       attachmentCount: message.attachmentCount ?? 0,
