@@ -26,7 +26,15 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class SearchService {
 
-    private static final List<String> HIGHLIGHT_FIELDS = List.of("subject", "body");
+    /**
+     * Order matters: {@link #snippet} returns the first of these that
+     * produced a fragment. Subject and body come first because they read as
+     * prose; the participant fields are a fallback so that a hit matched only
+     * on a name still shows the reviewer why it matched, instead of an
+     * unrelated opening line from the body.
+     */
+    private static final List<String> HIGHLIGHT_FIELDS =
+            List.of("subject", "body", "sender", "recipients");
 
     private final MessageIndexClient indexClient;
     private final SearchQueryBuilder queryBuilder;

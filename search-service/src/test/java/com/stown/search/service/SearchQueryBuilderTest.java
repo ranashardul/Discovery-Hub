@@ -23,7 +23,7 @@ class SearchQueryBuilderTest {
     }
 
     @Test
-    void buildsMultiMatchOverSubjectAndBody() {
+    void buildsMultiMatchOverSubjectBodyAndParticipants() {
         Query query = builder.build(SearchCriteria.ofQuery("merger agreement", MAX_SIZE));
 
         BoolQuery bool = query.bool();
@@ -34,8 +34,30 @@ class SearchQueryBuilderTest {
         assertThat(multiMatch.query()).isEqualTo("merger agreement");
         assertThat(multiMatch.fields()).containsExactly(
                 SearchQueryBuilder.SUBJECT_FIELD,
-                SearchQueryBuilder.BODY_FIELD
+                SearchQueryBuilder.BODY_FIELD,
+                SearchQueryBuilder.SENDER_FIELD,
+                SearchQueryBuilder.RECIPIENTS_FIELD
         );
+    }
+
+    /**
+     * FR-3 puts participants in the full-text surface alongside subject and
+     * body, so a name typed into the search box has to match the people on a
+     * message and not only incidental mentions in its text.
+     *
+     * <p>These must be the analysed fields. Targeting {@code sender.keyword}
+     * here would make the whole address the single token, so a partial name
+     * would score nothing — which is the exact-match behaviour the separate
+     * sender filter already provides.
+     */
+    @Test
+    void searchesParticipantsOnTheAnalysedFieldsNotTheKeywordSubFields() {
+        MultiMatchQuery multiMatch = builder.build(SearchCriteria.ofQuery("imogen", MAX_SIZE))
+                .bool().must().getFirst().multiMatch();
+
+        assertThat(multiMatch.fields())
+                .contains(SearchQueryBuilder.SENDER_FIELD, SearchQueryBuilder.RECIPIENTS_FIELD)
+                .noneMatch(field -> field.contains(".keyword"));
     }
 
     @Test
