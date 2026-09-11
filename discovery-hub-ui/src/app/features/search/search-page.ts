@@ -56,6 +56,12 @@ export class SearchPage {
     communicationType: '',
     sender: '',
     recipient: '',
+    // No control of its own: "sent by" and "sent to" cover the directional
+    // questions, and a third custodian picker next to them was three fields
+    // for one idea. Kept on the form because a deep link or a saved search
+    // can still carry participants — a legal hold is scoped that way — and
+    // dropping it here would silently discard that filter when one is
+    // re-run.
     participants: [[] as string[]],
     hasAttachments: false,
     onHold: '',
@@ -173,20 +179,6 @@ export class SearchPage {
       size: criteria.size ?? 20,
     });
     this.submit();
-  }
-
-  protected includesParticipant(identity: string): boolean {
-    return this.form.getRawValue().participants.includes(identity);
-  }
-
-  protected toggleParticipant(identity: string, checked: boolean): void {
-    const current = new Set(this.form.getRawValue().participants);
-    if (checked) {
-      current.add(identity);
-    } else {
-      current.delete(identity);
-    }
-    this.form.patchValue({ participants: [...current] });
   }
 
   protected toggleSelection(messageId: string): void {

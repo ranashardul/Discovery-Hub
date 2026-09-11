@@ -37,26 +37,6 @@
             </select>
           </label>
 
-          <div class="field">
-            <span class="field__label">Custodian(s)</span>
-            <span class="field__hint">
-              Anyone on the message, sending or receiving. Pick several to find everything
-              involving any of them.
-            </span>
-            <div style="display: grid; gap: 0.3rem; max-height: 9rem; overflow-y: auto">
-              @for (custodian of custodians(); track custodian.id) {
-                <label class="check">
-                  <input
-                    type="checkbox"
-                    [checked]="includesParticipant(custodian.email)"
-                    (change)="toggleParticipant(custodian.email, $any($event.target).checked)"
-                  />
-                  <span>{{ custodian.displayName }}</span>
-                </label>
-              }
-            </div>
-          </div>
-
           <label class="field">
             <span class="field__label">Sent by</span>
             <select formControlName="sender">
@@ -209,7 +189,7 @@
                         <span [innerHTML]="item.highlights.subject | highlighted"></span>
                       </a>
                       <p class="small muted" style="margin: 0.25rem 0 0">
-                        <span [innerHTML]="item.snippet | highlighted"></span>
+                        <span [innerHTML]="item.highlights.body | highlighted"></span>
                       </p>
                       <p class="small muted mono" style="margin: 0.25rem 0 0">
                         {{ item.messageId }} · thread {{ item.threadId }} · score {{ item.score }}
