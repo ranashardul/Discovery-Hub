@@ -20,7 +20,7 @@ import {
   LegalCase,
 } from '../../core/models/case';
 import { ExportJob } from '../../core/models/export';
-import { DeletionAttemptResult, LegalHold } from '../../core/models/hold';
+import { LegalHold } from '../../core/models/hold';
 import { Custodian } from '../../core/models/message';
 import { SavedSearch } from '../../core/models/search';
 import { CURRENT_ACTOR } from '../../core/mock/mock-store';
@@ -85,11 +85,15 @@ export class CaseDetailPage {
 
   protected readonly custodianModalOpen = signal(false);
   protected readonly holdModalOpen = signal(false);
-  protected readonly deletionResult = signal<DeletionAttemptResult | null>(null);
 
   protected readonly custodianForm = this.fb.nonNullable.group({ custodianId: '' });
 
   protected readonly readOnly = computed(() => this.legalCase()?.status === 'CLOSED');
+
+  /** Evidence is frozen while any hold on the case is still active. */
+  protected readonly caseOnHold = computed(() =>
+    this.holds().some((hold) => hold.status === 'ACTIVE'),
+  );
 
   protected readonly allowedTransitions = computed<readonly CaseStatus[]>(() => {
     const status = this.legalCase()?.status;
@@ -232,7 +236,7 @@ export class CaseDetailPage {
   protected async removeEvidence(messageId: string): Promise<void> {
     try {
       await firstValueFrom(this.caseApi.removeEvidence(this.id(), messageId));
-      this.toast.info('Evidence item removed; the removal is in the audit trail.');
+      this.toast.info('Message unlinked from the case. It remains in the archive.');
       this.refreshEvidence();
       this.refreshCase();
       this.refreshAudit();
@@ -258,21 +262,6 @@ export class CaseDetailPage {
       this.toast.info('Hold released. Messages covered by another active hold stay protected.');
       this.refreshHolds();
       this.refreshCase();
-      this.refreshAudit();
-    } catch (error) {
-      this.toast.error(error);
-    }
-  }
-
-  /** FR-4.6 proof: ask the platform to delete an evidence message. */
-  protected async testDeletion(messageId: string): Promise<void> {
-    try {
-      const result = await firstValueFrom(this.holdApi.attemptDelete(messageId));
-      this.deletionResult.set(result);
-      if (result.deleted) {
-        await firstValueFrom(this.caseApi.removeEvidence(this.id(), messageId));
-      }
-      this.refreshEvidence();
       this.refreshAudit();
     } catch (error) {
       this.toast.error(error);
