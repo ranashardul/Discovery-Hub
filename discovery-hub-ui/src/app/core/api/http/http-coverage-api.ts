@@ -19,7 +19,11 @@ export class HttpCoverageApi extends CoverageApi {
   private readonly http = inject(HttpClient);
 
   report(): Observable<CoverageReport> {
-    return this.http.get<CoverageReport>(REPORT_URL).pipe(
+    // Cache-busted per request. The report is a static file whose contents
+    // change while its URL does not, so a conditional request served from
+    // cache is exactly the wrong outcome: the page would show a coverage
+    // figure the reader has just regenerated and believes is current.
+    return this.http.get<CoverageReport>(REPORT_URL, { params: { t: Date.now() } }).pipe(
       // Any failure here means the same thing in practice: the report has not
       // been generated. Saying how to produce it is more useful than relaying
       // a 404 from a static file fetch.

@@ -324,6 +324,21 @@ services:
     # through the gateway, so there is one origin and no CORS to configure.
     expose:
       - "80"
+    volumes:
+      # The coverage report is regenerated on the host by
+      # infrastructure/coverage-report.sh, but public/ is copied into the image
+      # at build time. Without this mount the container keeps serving whichever
+      # report was current when the image was built, and refreshing one JSON
+      # file would mean a full npm ci and ng build.
+      #
+      # A single file, not the directory: mounting a directory here would hide
+      # index.html and every JS chunk. Read-only because nothing in the
+      # container should write it.
+      #
+      # The file is committed, so it always exists. If it is ever missing,
+      # Docker creates a directory at this path instead and the endpoint serves
+      # a 403 rather than JSON — run coverage-report.sh to restore it.
+      - ../discovery-hub-ui/public/coverage-summary.json:/usr/share/nginx/html/coverage-summary.json:ro
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost/index.html"]
       interval: 10s
