@@ -324,6 +324,21 @@ services:
     # through the gateway, so there is one origin and no CORS to configure.
     expose:
       - "80"
+    volumes:
+      # The coverage report is regenerated on the host by
+      # infrastructure/coverage-report.sh, but public/ is copied into the image
+      # at build time. Without this mount the container keeps serving whichever
+      # report was current when the image was built, and refreshing one JSON
+      # file would mean a full npm ci and ng build.
+      #
+      # A single file, not the directory: mounting a directory here would hide
+      # index.html and every JS chunk. Read-only because nothing in the
+      # container should write it.
+      #
+      # The file is committed, so it always exists. If it is ever missing,
+      # Docker creates a directory at this path instead and the endpoint serves
+      # a 403 rather than JSON — run coverage-report.sh to restore it.
+      - ../discovery-hub-ui/public/coverage-summary.json:/usr/share/nginx/html/coverage-summary.json:ro
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost/index.html"]
       interval: 10s
@@ -350,7 +365,14 @@ services:
       export-audit-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/healthz || exit 1"]
+      # 127.0.0.1, not localhost. The nginx config binds IPv4 only
+      # (`listen 80;`), while /etc/hosts in the image maps localhost to both
+      # 127.0.0.1 and ::1 — and BusyBox wget tries ::1 first, so it gets
+      # "connection refused" from a gateway that is serving traffic perfectly.
+      # This check never passed once, leaving the container permanently
+      # unhealthy; the only reason nothing broke is that nothing depends_on the
+      # gateway. An orchestrator would have restarted it in a loop.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

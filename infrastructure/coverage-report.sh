@@ -442,12 +442,37 @@ PY
 
 AGGREGATED=$?
 
-say ""
-
 if [ "$AGGREGATED" -ne 0 ]; then
+  say ""
   red "Aggregation failed."
   exit 1
 fi
+
+# Push the fresh report into a running UI container.
+#
+# The bundle is built into the image, and Angular copies public/ into it, so a
+# regenerated report on the host does not reach a container that is already
+# running. Compose now bind-mounts the file, which makes this unnecessary — but
+# a container created before that mount existed still serves the baked copy,
+# and rebuilding the image to change one JSON file is a three-minute loop.
+#
+# When the mount is in place the copy fails because the target is read-only.
+# That is the good outcome, not an error: the container is already reading this
+# exact file from the host.
+UI_CONTAINER="${COVERAGE_UI_CONTAINER:-stown-discovery-hub-ui}"
+
+if [ "$(docker inspect -f '{{.State.Running}}' "$UI_CONTAINER" 2>/dev/null)" = "true" ]; then
+  if docker cp "$OUTPUT" \
+      "$UI_CONTAINER:/usr/share/nginx/html/coverage-summary.json" >/dev/null 2>&1; then
+    dim "  copied into $UI_CONTAINER - reload the Coverage screen"
+  else
+    dim "  $UI_CONTAINER reads this file directly (read-only mount) - nothing to copy"
+  fi
+else
+  dim "  $UI_CONTAINER is not running; start the stack to view the screen"
+fi
+
+say ""
 
 if [ "${#FAILED_MODULES[@]}" -gt 0 ]; then
   red "Test suites failed: ${FAILED_MODULES[*]}"
