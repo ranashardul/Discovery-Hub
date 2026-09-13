@@ -365,7 +365,14 @@ services:
       export-audit-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/healthz || exit 1"]
+      # 127.0.0.1, not localhost. The nginx config binds IPv4 only
+      # (`listen 80;`), while /etc/hosts in the image maps localhost to both
+      # 127.0.0.1 and ::1 — and BusyBox wget tries ::1 first, so it gets
+      # "connection refused" from a gateway that is serving traffic perfectly.
+      # This check never passed once, leaving the container permanently
+      # unhealthy; the only reason nothing broke is that nothing depends_on the
+      # gateway. An orchestrator would have restarted it in a loop.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
