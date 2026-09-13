@@ -37,6 +37,12 @@ export class App {
     { path: '/retention', label: 'Retention', hint: 'Policies and disposition runs', icon: 'clock' },
     { path: '/audit', label: 'Audit trail', hint: 'Append-only chain of custody', icon: 'shield' },
     { path: '/demo', label: 'Retention demo', hint: 'Expire and dispose one message', icon: 'timer' },
+    {
+      path: '/coverage',
+      label: 'Test coverage',
+      hint: 'Per-service and overall test coverage',
+      icon: 'beaker',
+    },
   ];
 
   /** Polled so a simulated outage shows up in the header without a reload. */
@@ -61,6 +67,7 @@ export class App {
     clock: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 4v5l4 2',
     shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
     timer: 'M10 3h4M12 7v6l3 2M5 13a7 7 0 1 0 14 0 7 7 0 0 0-14 0z',
+    beaker: 'M9 3h6M10 3v6l-5 8a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-8V3M6.5 14h11',
   };
 
   protected toggleNav(): void {

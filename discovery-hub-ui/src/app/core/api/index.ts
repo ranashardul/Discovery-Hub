@@ -4,3 +4,4 @@ export * from './hold-api';
 export * from './export-api';
 export * from './audit-api';
 export * from './platform-api';
+export * from './coverage-api';

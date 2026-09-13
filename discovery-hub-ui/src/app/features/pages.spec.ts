@@ -5,6 +5,7 @@ import { provideMockDiscoveryHubApi } from '../core/api/providers';
 import { AuditPage } from './audit/audit-page';
 import { CaseDetailPage } from './cases/case-detail-page';
 import { CasesPage } from './cases/cases-page';
+import { CoveragePage } from './coverage/coverage-page';
 import { DashboardPage } from './dashboard/dashboard-page';
 import { ExportsPage } from './exports/exports-page';
 import { HoldsPage } from './holds/holds-page';
@@ -46,6 +47,11 @@ describe('route components', () => {
     ['retention', RetentionPage],
     ['retention demo', RetentionDemoPage],
     ['audit', AuditPage],
+    // Mounts here purely to prove it degrades cleanly: the in-memory backend
+    // has no coverage to report, so this asserts the page renders its shell
+    // and an explanation rather than throwing. The real rendering is covered
+    // in coverage-page.spec.ts against a stubbed report.
+    ['coverage', CoveragePage],
   ];
 
   for (const [name, page] of simplePages) {

@@ -1,0 +1,844 @@
+{
+  "generatedAt": "2026-09-13T17:35:35Z",
+  "includedIntegrationTests": true,
+  "metrics": [
+    "lines",
+    "branches",
+    "methods"
+  ],
+  "tools": {
+    "java": "JaCoCo 0.8.12",
+    "web": "Vitest 4.1.11 (v8 provider)"
+  },
+  "overall": {
+    "lines": {
+      "covered": 5819,
+      "total": 8370,
+      "pct": 69.52
+    },
+    "branches": {
+      "covered": 1573,
+      "total": 2767,
+      "pct": 56.85
+    },
+    "methods": {
+      "covered": 955,
+      "total": 1638,
+      "pct": 58.3
+    },
+    "tests": {
+      "total": 338,
+      "passed": 338,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "modules": [
+    {
+      "id": "ingestion-service",
+      "name": "ingestion-service",
+      "label": "Ingestion",
+      "description": "Ingest, archive, retention and disposition",
+      "kind": "java",
+      "stack": "Java 21 \u00b7 Spring Boot 4",
+      "tool": "JaCoCo",
+      "available": true,
+      "reason": null,
+      "lines": {
+        "covered": 1172,
+        "total": 1410,
+        "pct": 83.12
+      },
+      "branches": {
+        "covered": 225,
+        "total": 318,
+        "pct": 70.75
+      },
+      "methods": {
+        "covered": 162,
+        "total": 206,
+        "pct": 78.64
+      },
+      "extra": {
+        "instructions": {
+          "covered": 4474,
+          "total": 5410,
+          "pct": 82.7
+        },
+        "complexity": {
+          "covered": 245,
+          "total": 365,
+          "pct": 67.12
+        }
+      },
+      "tests": {
+        "total": 131,
+        "passed": 131,
+        "failed": 0,
+        "skipped": 0
+      },
+      "packages": [
+        {
+          "name": "com.stown.ingestion.service",
+          "lines": {
+            "covered": 808,
+            "total": 947,
+            "pct": 85.32
+          },
+          "branches": {
+            "covered": 178,
+            "total": 242,
+            "pct": 73.55
+          },
+          "methods": {
+            "covered": 100,
+            "total": 116,
+            "pct": 86.21
+          }
+        },
+        {
+          "name": "com.stown.ingestion.api",
+          "lines": {
+            "covered": 123,
+            "total": 203,
+            "pct": 60.59
+          },
+          "branches": {
+            "covered": 17,
+            "total": 38,
+            "pct": 44.74
+          },
+          "methods": {
+            "covered": 27,
+            "total": 49,
+            "pct": 55.1
+          }
+        },
+        {
+          "name": "com.stown.ingestion.worker",
+          "lines": {
+            "covered": 113,
+            "total": 116,
+            "pct": 97.41
+          },
+          "branches": {
+            "covered": 13,
+            "total": 16,
+            "pct": 81.25
+          },
+          "methods": {
+            "covered": 8,
+            "total": 11,
+            "pct": 72.73
+          }
+        },
+        {
+          "name": "com.stown.ingestion.config",
+          "lines": {
+            "covered": 82,
+            "total": 96,
+            "pct": 85.42
+          },
+          "branches": {
+            "covered": 6,
+            "total": 10,
+            "pct": 60.0
+          },
+          "methods": {
+            "covered": 17,
+            "total": 19,
+            "pct": 89.47
+          }
+        },
+        {
+          "name": "com.stown.ingestion.messaging",
+          "lines": {
+            "covered": 26,
+            "total": 26,
+            "pct": 100.0
+          },
+          "branches": {
+            "covered": 11,
+            "total": 12,
+            "pct": 91.67
+          },
+          "methods": {
+            "covered": 6,
+            "total": 6,
+            "pct": 100.0
+          }
+        },
+        {
+          "name": "com.stown.ingestion.domain",
+          "lines": {
+            "covered": 19,
+            "total": 19,
+            "pct": 100.0
+          },
+          "branches": {
+            "covered": 0,
+            "total": 0,
+            "pct": 0.0
+          },
+          "methods": {
+            "covered": 3,
+            "total": 3,
+            "pct": 100.0
+          }
+        },
+        {
+          "name": "com.stown.ingestion",
+          "lines": {
+            "covered": 1,
+            "total": 3,
+            "pct": 33.33
+          },
+          "branches": {
+            "covered": 0,
+            "total": 0,
+            "pct": 0.0
+          },
+          "methods": {
+            "covered": 1,
+            "total": 2,
+            "pct": 50.0
+          }
+        }
+      ],
+      "htmlReport": "ingestion-service/target/site/jacoco/index.html"
+    },
+    {
+      "id": "search-service",
+      "name": "search-service",
+      "label": "Search",
+      "description": "Elasticsearch projection and search API",
+      "kind": "java",
+      "stack": "Java 21 \u00b7 Spring Boot 4",
+      "tool": "JaCoCo",
+      "available": true,
+      "reason": null,
+      "lines": {
+        "covered": 693,
+        "total": 846,
+        "pct": 81.91
+      },
+      "branches": {
+        "covered": 170,
+        "total": 225,
+        "pct": 75.56
+      },
+      "methods": {
+        "covered": 196,
+        "total": 221,
+        "pct": 88.69
+      },
+      "extra": {
+        "instructions": {
+          "covered": 3178,
+          "total": 3769,
+          "pct": 84.32
+        },
+        "complexity": {
+          "covered": 263,
+          "total": 334,
+          "pct": 78.74
+        }
+      },
+      "tests": {
+        "total": 76,
+        "passed": 76,
+        "failed": 0,
+        "skipped": 0
+      },
+      "packages": [
+        {
+          "name": "com.stown.search.service",
+          "lines": {
+            "covered": 433,
+            "total": 485,
+            "pct": 89.28
+          },
+          "branches": {
+            "covered": 137,
+            "total": 161,
+            "pct": 85.09
+          },
+          "methods": {
+            "covered": 81,
+            "total": 83,
+            "pct": 97.59
+          }
+        },
+        {
+          "name": "com.stown.search.index",
+          "lines": {
+            "covered": 137,
+            "total": 192,
+            "pct": 71.35
+          },
+          "branches": {
+            "covered": 25,
+            "total": 48,
+            "pct": 52.08
+          },
+          "methods": {
+            "covered": 81,
+            "total": 93,
+            "pct": 87.1
+          }
+        },
+        {
+          "name": "com.stown.search.api",
+          "lines": {
+            "covered": 46,
+            "total": 85,
+            "pct": 54.12
+          },
+          "branches": {
+            "covered": 0,
+            "total": 0,
+            "pct": 0.0
+          },
+          "methods": {
+            "covered": 19,
+            "total": 28,
+            "pct": 67.86
+          }
+        },
+        {
+          "name": "com.stown.search.config",
+          "lines": {
+            "covered": 59,
+            "total": 60,
+            "pct": 98.33
+          },
+          "branches": {
+            "covered": 0,
+            "total": 0,
+            "pct": 0.0
+          },
+          "methods": {
+            "covered": 10,
+            "total": 11,
+            "pct": 90.91
+          }
+        },
+        {
+          "name": "com.stown.search.messaging",
+          "lines": {
+            "covered": 17,
+            "total": 21,
+            "pct": 80.95
+          },
+          "branches": {
+            "covered": 8,
+            "total": 16,
+            "pct": 50.0
+          },
+          "methods": {
+            "covered": 4,
+            "total": 4,
+            "pct": 100.0
+          }
+        },
+        {
+          "name": "com.stown.search",
+          "lines": {
+            "covered": 1,
+            "total": 3,
+            "pct": 33.33
+          },
+          "branches": {
+            "covered": 0,
+            "total": 0,
+            "pct": 0.0
+          },
+          "methods": {
+            "covered": 1,
+            "total": 2,
+            "pct": 50.0
+          }
+        }
+      ],
+      "htmlReport": "search-service/target/site/jacoco/index.html"
+    },
+    {
+      "id": "case-hold-service",
+      "name": "case-hold-service",
+      "label": "Case & Hold",
+      "description": "Cases, legal holds, saved searches",
+      "kind": "java",
+      "stack": "Java 21 \u00b7 Spring Boot 4",
+      "tool": "JaCoCo",
+      "available": true,
+      "reason": null,
+      "lines": {
+        "covered": 531,
+        "total": 721,
+        "pct": 73.65
+      },
+      "branches": {
+        "covered": 123,
+        "total": 196,
+        "pct": 62.76
+      },
+      "methods": {
+        "covered": 106,
+        "total": 147,
+        "pct": 72.11
+      },
+      "extra": {
+        "instructions": {
+          "covered": 2315,
+          "total": 3067,
+          "pct": 75.48
+        },
+        "complexity": {
+          "covered": 150,
+          "total": 245,
+          "pct": 61.22
+        }
+      },
+      "tests": {
+        "total": 26,
+        "passed": 26,
+        "failed": 0,
+        "skipped": 0
+      },
+      "packages": [
+        {
+          "name": "com.stown.casehold.service",
+          "lines": {
+            "covered": 414,
+            "total": 538,
+            "pct": 76.95
+          },
+          "branches": {
+            "covered": 108,
+            "total": 168,
+            "pct": 64.29
+          },
+          "methods": {
+            "covered": 54,
+            "total": 73,
+            "pct": 73.97
+          }
+        },
+        {
+          "name": "com.stown.casehold.api",
+          "lines": {
+            "covered": 43,
+            "total": 92,
+            "pct": 46.74
+          },
+          "branches": {
+            "covered": 3,
+            "total": 12,
+            "pct": 25.0
+          },
+          "methods": {
+            "covered": 36,
+            "total": 55,
+            "pct": 65.45
+          }
+        },
+        {
+          "name": "com.stown.casehold.messaging",
+          "lines": {
+            "covered": 43,
+            "total": 58,
+            "pct": 74.14
+          },
+          "branches": {
+            "covered": 3,
+            "total": 4,
+            "pct": 75.0
+          },
+          "methods": {
+            "covered": 4,
+            "total": 6,
+            "pct": 66.67
+          }
+        },
+        {
+          "name": "com.stown.casehold.config",
+          "lines": {
+            "covered": 16,
+            "total": 16,
+            "pct": 100.0
+          },
+          "branches": {
+            "covered": 0,
+            "total": 0,
+            "pct": 0.0
+          },
+          "methods": {
+            "covered": 5,
+            "total": 5,
+            "pct": 100.0
+          }
+        },
+        {
+          "name": "com.stown.casehold.domain",
+          "lines": {
+            "covered": 14,
+            "total": 14,
+            "pct": 100.0
+          },
+          "branches": {
+            "covered": 9,
+            "total": 12,
+            "pct": 75.0
+          },
+          "methods": {
+            "covered": 6,
+            "total": 6,
+            "pct": 100.0
+          }
+        },
+        {
+          "name": "com.stown.casehold",
+          "lines": {
+            "covered": 1,
+            "total": 3,
+            "pct": 33.33
+          },
+          "branches": {
+            "covered": 0,
+            "total": 0,
+            "pct": 0.0
+          },
+          "methods": {
+            "covered": 1,
+            "total": 2,
+            "pct": 50.0
+          }
+        }
+      ],
+      "htmlReport": "case-hold-service/target/site/jacoco/index.html"
+    },
+    {
+      "id": "export-audit-service",
+      "name": "export-audit-service",
+      "label": "Export & Audit",
+      "description": "Evidence packages and chain of custody",
+      "kind": "java",
+      "stack": "Java 21 \u00b7 Spring Boot 4",
+      "tool": "JaCoCo",
+      "available": true,
+      "reason": null,
+      "lines": {
+        "covered": 1044,
+        "total": 1542,
+        "pct": 67.7
+      },
+      "branches": {
+        "covered": 187,
+        "total": 402,
+        "pct": 46.52
+      },
+      "methods": {
+        "covered": 130,
+        "total": 208,
+        "pct": 62.5
+      },
+      "extra": {
+        "instructions": {
+          "covered": 4857,
+          "total": 7385,
+          "pct": 65.77
+        },
+        "complexity": {
+          "covered": 179,
+          "total": 409,
+          "pct": 43.77
+        }
+      },
+      "tests": {
+        "total": 48,
+        "passed": 48,
+        "failed": 0,
+        "skipped": 0
+      },
+      "packages": [
+        {
+          "name": "com.stown.exportaudit.service",
+          "lines": {
+            "covered": 817,
+            "total": 1101,
+            "pct": 74.21
+          },
+          "branches": {
+            "covered": 146,
+            "total": 300,
+            "pct": 48.67
+          },
+          "methods": {
+            "covered": 84,
+            "total": 118,
+            "pct": 71.19
+          }
+        },
+        {
+          "name": "com.stown.exportaudit.api",
+          "lines": {
+            "covered": 2,
+            "total": 146,
+            "pct": 1.37
+          },
+          "branches": {
+            "covered": 0,
+            "total": 14,
+            "pct": 0.0
+          },
+          "methods": {
+            "covered": 2,
+            "total": 35,
+            "pct": 5.71
+          }
+        },
+        {
+          "name": "com.stown.exportaudit.config",
+          "lines": {
+            "covered": 123,
+            "total": 131,
+            "pct": 93.89
+          },
+          "branches": {
+            "covered": 6,
+            "total": 10,
+            "pct": 60.0
+          },
+          "methods": {
+            "covered": 28,
+            "total": 30,
+            "pct": 93.33
+          }
+        },
+        {
+          "name": "com.stown.exportaudit.messaging",
+          "lines": {
+            "covered": 41,
+            "total": 71,
+            "pct": 57.75
+          },
+          "branches": {
+            "covered": 22,
+            "total": 44,
+            "pct": 50.0
+          },
+          "methods": {
+            "covered": 5,
+            "total": 7,
+            "pct": 71.43
+          }
+        },
+        {
+          "name": "com.stown.exportaudit.domain",
+          "lines": {
+            "covered": 28,
+            "total": 28,
+            "pct": 100.0
+          },
+          "branches": {
+            "covered": 0,
+            "total": 0,
+            "pct": 0.0
+          },
+          "methods": {
+            "covered": 5,
+            "total": 5,
+            "pct": 100.0
+          }
+        },
+        {
+          "name": "com.stown.exportaudit.repository",
+          "lines": {
+            "covered": 0,
+            "total": 27,
+            "pct": 0.0
+          },
+          "branches": {
+            "covered": 0,
+            "total": 14,
+            "pct": 0.0
+          },
+          "methods": {
+            "covered": 0,
+            "total": 6,
+            "pct": 0.0
+          }
+        },
+        {
+          "name": "com.stown.exportaudit.evidence",
+          "lines": {
+            "covered": 24,
+            "total": 25,
+            "pct": 96.0
+          },
+          "branches": {
+            "covered": 10,
+            "total": 14,
+            "pct": 71.43
+          },
+          "methods": {
+            "covered": 3,
+            "total": 3,
+            "pct": 100.0
+          }
+        },
+        {
+          "name": "com.stown.exportaudit.worker",
+          "lines": {
+            "covered": 8,
+            "total": 10,
+            "pct": 80.0
+          },
+          "branches": {
+            "covered": 3,
+            "total": 6,
+            "pct": 50.0
+          },
+          "methods": {
+            "covered": 2,
+            "total": 2,
+            "pct": 100.0
+          }
+        },
+        {
+          "name": "com.stown.exportaudit",
+          "lines": {
+            "covered": 1,
+            "total": 3,
+            "pct": 33.33
+          },
+          "branches": {
+            "covered": 0,
+            "total": 0,
+            "pct": 0.0
+          },
+          "methods": {
+            "covered": 1,
+            "total": 2,
+            "pct": 50.0
+          }
+        }
+      ],
+      "htmlReport": "export-audit-service/target/site/jacoco/index.html"
+    },
+    {
+      "id": "discovery-hub-ui",
+      "name": "discovery-hub-ui",
+      "label": "Web UI",
+      "description": "Angular front end, screens and API clients",
+      "kind": "web",
+      "stack": "Angular 22 \u00b7 TypeScript",
+      "tool": "Vitest (v8)",
+      "htmlReport": "discovery-hub-ui/coverage/discovery-hub-ui/index.html",
+      "available": true,
+      "reason": null,
+      "lines": {
+        "covered": 2379,
+        "total": 3851,
+        "pct": 61.78
+      },
+      "branches": {
+        "covered": 868,
+        "total": 1626,
+        "pct": 53.38
+      },
+      "methods": {
+        "covered": 361,
+        "total": 856,
+        "pct": 42.17
+      },
+      "extra": {
+        "statements": {
+          "covered": 3333,
+          "total": 5326,
+          "pct": 62.58
+        }
+      },
+      "tests": {
+        "total": 57,
+        "passed": 57,
+        "failed": 0,
+        "skipped": 0
+      },
+      "packages": [
+        {
+          "name": "src/app/features",
+          "lines": {
+            "covered": 1552,
+            "total": 2525,
+            "pct": 61.47
+          },
+          "branches": {
+            "covered": 374,
+            "total": 713,
+            "pct": 52.45
+          },
+          "methods": {
+            "covered": 130,
+            "total": 335,
+            "pct": 38.81
+          }
+        },
+        {
+          "name": "src/app/core",
+          "lines": {
+            "covered": 683,
+            "total": 1154,
+            "pct": 59.19
+          },
+          "branches": {
+            "covered": 362,
+            "total": 758,
+            "pct": 47.76
+          },
+          "methods": {
+            "covered": 213,
+            "total": 486,
+            "pct": 43.83
+          }
+        },
+        {
+          "name": "src/app/shared",
+          "lines": {
+            "covered": 100,
+            "total": 124,
+            "pct": 80.65
+          },
+          "branches": {
+            "covered": 120,
+            "total": 141,
+            "pct": 85.11
+          },
+          "methods": {
+            "covered": 14,
+            "total": 26,
+            "pct": 53.85
+          }
+        },
+        {
+          "name": "src/app",
+          "lines": {
+            "covered": 44,
+            "total": 48,
+            "pct": 91.67
+          },
+          "branches": {
+            "covered": 12,
+            "total": 14,
+            "pct": 85.71
+          },
+          "methods": {
+            "covered": 4,
+            "total": 9,
+            "pct": 44.44
+          }
+        }
+      ]
+    }
+  ]
+}

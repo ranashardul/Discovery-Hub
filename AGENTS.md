@@ -95,6 +95,17 @@ running (Testcontainers starts MongoDB, Kafka and Elasticsearch):
 cd search-service && ./mvnw test -Dgroups=integration -Dexcluded.test.groups=
 ```
 
+**Everything at once, with coverage**, is `infrastructure/coverage-report.sh`.
+It runs all five suites and aggregates JaCoCo and Vitest output into
+`discovery-hub-ui/public/coverage-summary.json`, which the **Test coverage**
+screen (`/coverage`) renders. The JaCoCo plugin in each of the four poms is
+build-only — the agent attaches to the surefire JVM and nothing reaches the
+packaged jar. No service exposes coverage and none was modified to report it;
+the UI reads a static asset, so there is no new port, route or container.
+
+Note `--skip-tests` re-aggregates whatever reports are already on disk, which
+is what you want while iterating on the screen rather than on the tests.
+
 ## Running the stack locally
 
 ```bash
