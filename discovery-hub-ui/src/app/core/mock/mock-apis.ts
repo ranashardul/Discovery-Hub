@@ -3,12 +3,14 @@ import { Observable, defer, delay, of, throwError } from 'rxjs';
 import { ApiError } from '../api/api-error';
 import { AuditApi } from '../api/audit-api';
 import { AddEvidenceRequest, CaseApi, CaseListQuery } from '../api/case-api';
+import { CoverageApi } from '../api/coverage-api';
 import { DemoApi } from '../api/demo-api';
 import { ExportApi } from '../api/export-api';
 import { HoldApi } from '../api/hold-api';
 import { PlatformApi } from '../api/platform-api';
 import { SearchApi } from '../api/search-api';
 import { AuditEntry, AuditPage, AuditQuery } from '../models/audit';
+import { CoverageReport } from '../models/coverage';
 import {
   DemoIngestAcceptance,
   DemoRetentionStatus,
@@ -375,5 +377,31 @@ export class MockDemoApi extends DemoApi {
 
   override storageProof(): Observable<DemoStorageProof> {
     return MockDemoApi.unavailable();
+  }
+}
+
+/**
+ * Refuses, with a reason.
+ *
+ * Coverage is a measurement of this repository's own source tree, produced by
+ * actually running the suites. Inventing percentages here would put numbers on
+ * screen that nothing measured — and a screenshot of fabricated coverage is
+ * worse than an empty screen, because it cannot be told apart from a real one.
+ *
+ * Registered so offline mode still resolves the contract and the route mounts,
+ * rather than failing injection.
+ */
+@Injectable()
+export class MockCoverageApi extends CoverageApi {
+  override report(): Observable<CoverageReport> {
+    return throwError(
+      () =>
+        new ApiError(
+          503,
+          'Coverage is measured by running the test suites, so there is nothing to ' +
+            'show offline. Generate a report with `cd infrastructure && ' +
+            './coverage-report.sh`, then reload this page.',
+        ),
+    );
   }
 }

@@ -53,6 +53,11 @@ export const routes: Routes = [
     loadComponent: () => import('./features/audit/audit-page').then((m) => m.AuditPage),
   },
   {
+    path: 'coverage',
+    title: 'Test coverage — DiscoveryHub',
+    loadComponent: () => import('./features/coverage/coverage-page').then((m) => m.CoveragePage),
+  },
+  {
     path: 'messages/:id',
     title: 'Message — DiscoveryHub',
     loadComponent: () =>

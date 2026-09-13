@@ -74,7 +74,21 @@
           "defaultConfiguration": "development"
         },
         "test": {
-          "builder": "@angular/build:unit-test"
+          "builder": "@angular/build:unit-test",
+          "configurations": {
+            "coverage": {
+              "coverage": true,
+              "coverageReporters": ["json-summary", "text-summary", "html"],
+              "coverageExclude": [
+                "src/main.ts",
+                "src/environments/**"
+              ],
+              "reporters": [
+                "default",
+                ["json", { "outputFile": "coverage/discovery-hub-ui/vitest-results.json" }]
+              ]
+            }
+          }
         }
       }
     }

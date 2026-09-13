@@ -207,6 +207,26 @@ cd export-audit-service && mvn test -Dgroups=integration -Dexcluded.test.groups=
 
 Integration tests use Testcontainers and require Docker.
 
+### Coverage, in one command
+
+```bash
+cd infrastructure
+./coverage-report.sh                  # every suite, integration tests included
+./coverage-report.sh --no-integration # skip Testcontainers, no Docker needed
+./coverage-report.sh --skip-tests     # re-aggregate existing reports only
+```
+
+Runs all five suites, then aggregates JaCoCo (Java) and Vitest (web) output
+into `discovery-hub-ui/public/coverage-summary.json`. View it on the
+**Test coverage** screen at `http://localhost:8080/coverage`, which reports
+each service and the overall figure, with a package-level breakdown per module.
+Per-module HTML drill-downs are written to `<module>/target/site/jacoco/` and
+`discovery-hub-ui/coverage/`.
+
+It handles two per-module quirks so you do not have to: `export-audit-service`
+has no Maven wrapper (it borrows `ingestion-service`'s), and the integration
+tests are excluded by surefire unless `excluded.test.groups` is cleared.
+
 ## Retention and Legal Holds
 
 Messages carry a retention period resolved per communication type at

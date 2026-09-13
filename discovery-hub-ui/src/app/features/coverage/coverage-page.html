@@ -1,0 +1,332 @@
+<div class="page">
+  <div class="page__head">
+    <div>
+      <h1 class="page__title">Test coverage</h1>
+      <p class="page__subtitle">
+        Coverage for every service and for the repository as a whole. Java modules are measured
+        with JaCoCo, the web app with Vitest. Regenerate with
+        <code class="mono">cd infrastructure &amp;&amp; ./coverage-report.sh</code>.
+      </p>
+    </div>
+    <div class="page__actions">
+      <button type="button" class="btn" (click)="load()">Reload report</button>
+    </div>
+  </div>
+
+  @if (loading()) {
+    <div class="card"><app-loading message="Reading the coverage report…" /></div>
+  } @else if (error()) {
+    <app-error-band title="No coverage report" [message]="error()!" />
+  } @else if (report(); as r) {
+    <!-- Provenance first. An unlabelled coverage number invites the reader to
+         assume it is current, and this one is only as fresh as the last run. -->
+    <div class="cov-provenance">
+      <span>
+        Generated <strong>{{ r.generatedAt | ago }}</strong>
+        <span class="muted small">({{ r.generatedAt | date: 'medium' }})</span>
+      </span>
+      @if (r.includedIntegrationTests) {
+        <span class="cov-tag cov-tag--high">Integration tests included</span>
+      } @else {
+        <span class="cov-tag cov-tag--medium">Unit tests only — integration suites skipped</span>
+      }
+    </div>
+
+    @if (hasFailures()) {
+      <app-error-band
+        title="Failing tests"
+        message="At least one suite reported a failure, so these figures describe a run that did not fully pass. Treat them as partial."
+      />
+    }
+
+    <!-- ---------------------------------------------------------- overall -->
+    @let overall = r.overall;
+
+    <div class="grid grid--metrics">
+      <div class="metric">
+        <p class="metric__label">Overall line coverage</p>
+        <p class="metric__value" [class]="'cov-value--' + band(overall.lines.pct)">
+          {{ overall.lines.pct }}%
+        </p>
+        <p class="metric__hint">
+          {{ overall.lines.covered | number }} of {{ overall.lines.total | number }} lines
+        </p>
+      </div>
+      <div class="metric">
+        <p class="metric__label">Branch coverage</p>
+        <p class="metric__value" [class]="'cov-value--' + band(overall.branches.pct)">
+          {{ overall.branches.pct }}%
+        </p>
+        <p class="metric__hint">
+          {{ overall.branches.covered | number }} of {{ overall.branches.total | number }} branches
+        </p>
+      </div>
+      <div class="metric">
+        <p class="metric__label">Method coverage</p>
+        <p class="metric__value" [class]="'cov-value--' + band(overall.methods.pct)">
+          {{ overall.methods.pct }}%
+        </p>
+        <p class="metric__hint">
+          {{ overall.methods.covered | number }} of {{ overall.methods.total | number }} methods
+        </p>
+      </div>
+      <div class="metric">
+        <p class="metric__label">Tests executed</p>
+        <p class="metric__value">{{ overall.tests.total | number }}</p>
+        <p class="metric__hint">
+          {{ overall.tests.passed | number }} passed
+          @if (overall.tests.failed > 0) {
+            · <span class="cov-value--low">{{ overall.tests.failed }} failed</span>
+          }
+          @if (overall.tests.skipped > 0) {
+            · {{ overall.tests.skipped }} skipped
+          }
+        </p>
+      </div>
+    </div>
+
+    <p class="muted small cov-note">
+      The overall figure is a sum across every measured module, not an average of their
+      percentages — averaging would let the smallest module move the headline number as much as
+      the largest.
+    </p>
+
+    <!-- ------------------------------------------------------- per module -->
+    <section class="card cov-card">
+      <div class="card__head">
+        <div>
+          <h2 class="card__title">Coverage by service</h2>
+          <p class="card__hint">
+            Each module is an independently deployable unit with its own suite. Select a row to
+            see the package-level breakdown.
+          </p>
+        </div>
+      </div>
+      <div class="card__body card__body--flush">
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Module</th>
+                <th>Lines</th>
+                <th>Branches</th>
+                <th>Methods</th>
+                <th>Tests</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (module of measured(); track module.id) {
+                <tr>
+                  <td>
+                    <span class="strong">{{ module.label }}</span><br />
+                    <span class="muted small">{{ module.description }}</span><br />
+                    <span class="muted small mono">{{ module.stack }} · {{ module.tool }}</span>
+                  </td>
+
+                  <td class="cov-cell">
+                    <div class="spread cov-cell__head">
+                      <span class="strong" [class]="'cov-value--' + band(module.lines.pct)">
+                        {{ module.lines.pct }}%
+                      </span>
+                      <span class="muted small nowrap">
+                        {{ module.lines.covered | number }}/{{ module.lines.total | number }}
+                      </span>
+                    </div>
+                    <div class="progress">
+                      <div
+                        class="progress__bar"
+                        [class]="'cov-bar--' + band(module.lines.pct)"
+                        [style.width.%]="module.lines.pct"
+                      ></div>
+                    </div>
+                    <span class="muted small">
+                      {{ uncovered(module.lines) | number }} uncovered
+                    </span>
+                  </td>
+
+                  <td>
+                    <span [class]="'cov-value--' + band(module.branches.pct)">
+                      {{ module.branches.pct }}%
+                    </span><br />
+                    <span class="muted small nowrap">
+                      {{ module.branches.covered | number }}/{{ module.branches.total | number }}
+                    </span>
+                  </td>
+
+                  <td>
+                    <span [class]="'cov-value--' + band(module.methods.pct)">
+                      {{ module.methods.pct }}%
+                    </span><br />
+                    <span class="muted small nowrap">
+                      {{ module.methods.covered | number }}/{{ module.methods.total | number }}
+                    </span>
+                  </td>
+
+                  <td class="nowrap">
+                    <span class="strong">{{ module.tests.total | number }}</span><br />
+                    @if (module.tests.failed > 0) {
+                      <span class="cov-value--low small">{{ module.tests.failed }} failed</span>
+                    } @else {
+                      <span class="muted small">all passed</span>
+                    }
+                  </td>
+
+                  <td class="row-actions">
+                    <button type="button" class="btn btn--sm" (click)="toggle(module.id)">
+                      {{ isExpanded(module.id) ? 'Hide packages' : 'Packages' }}
+                    </button>
+                  </td>
+                </tr>
+
+                @if (isExpanded(module.id)) {
+                  <tr class="cov-detail">
+                    <td colspan="6">
+                      <div class="cov-detail__body">
+                        <div class="spread cov-detail__head">
+                          <p class="strong">
+                            {{ module.kind === 'java' ? 'Packages' : 'Source areas' }} in
+                            {{ module.name }}
+                          </p>
+                          <span class="muted small mono">{{ module.htmlReport }}</span>
+                        </div>
+
+                        @if (extras(module).length > 0) {
+                          <dl class="kv small cov-extras">
+                            @for (extra of extras(module); track extra.name) {
+                              <dt>{{ extra.name }}</dt>
+                              <dd>
+                                {{ extra.metric.pct }}%
+                                <span class="muted">
+                                  ({{ extra.metric.covered | number }}/{{
+                                    extra.metric.total | number
+                                  }})
+                                </span>
+                              </dd>
+                            }
+                          </dl>
+                        }
+
+                        <table class="data cov-packages">
+                          <thead>
+                            <tr>
+                              <th>Name</th>
+                              <th>Lines</th>
+                              <th>Coverage</th>
+                              <th>Branches</th>
+                              <th>Methods</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            @for (group of module.packages; track group.name) {
+                              <tr>
+                                <td class="mono small">{{ group.name }}</td>
+                                <td class="muted small nowrap">
+                                  {{ group.lines.covered | number }}/{{
+                                    group.lines.total | number
+                                  }}
+                                </td>
+                                <td class="cov-cell">
+                                  <div class="spread cov-cell__head">
+                                    <span
+                                      class="small strong"
+                                      [class]="'cov-value--' + band(group.lines.pct)"
+                                    >
+                                      {{ group.lines.pct }}%
+                                    </span>
+                                  </div>
+                                  <div class="progress">
+                                    <div
+                                      class="progress__bar"
+                                      [class]="'cov-bar--' + band(group.lines.pct)"
+                                      [style.width.%]="group.lines.pct"
+                                    ></div>
+                                  </div>
+                                </td>
+                                <td class="small" [class]="'cov-value--' + band(group.branches.pct)">
+                                  {{ group.branches.pct }}%
+                                </td>
+                                <td class="small" [class]="'cov-value--' + band(group.methods.pct)">
+                                  {{ group.methods.pct }}%
+                                </td>
+                              </tr>
+                            } @empty {
+                              <tr>
+                                <td colspan="5" class="muted">No package data in the report.</td>
+                              </tr>
+                            }
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                }
+              } @empty {
+                <tr>
+                  <td colspan="6">
+                    <app-empty
+                      title="No module has been measured yet"
+                      hint="Run ./coverage-report.sh from the infrastructure directory."
+                    />
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- --------------------------------------------------- not yet measured -->
+    @if (missing().length > 0) {
+      <section class="card cov-card">
+        <div class="card__head">
+          <div>
+            <h2 class="card__title">Not measured in this run</h2>
+            <p class="card__hint">
+              These modules have no report on disk. That is not the same as having no tests, so
+              they are excluded from the overall figure rather than counted as zero.
+            </p>
+          </div>
+        </div>
+        <div class="card__body">
+          <dl class="kv">
+            @for (module of missing(); track module.id) {
+              <dt>{{ module.label }}</dt>
+              <dd>{{ module.reason }}</dd>
+            }
+          </dl>
+        </div>
+      </section>
+    }
+
+    <!-- ------------------------------------------------------------- how to -->
+    <section class="card cov-card">
+      <div class="card__head">
+        <h2 class="card__title">How these numbers are produced</h2>
+      </div>
+      <div class="card__body stack--sm small">
+        <p class="muted" style="margin: 0">
+          One command runs every suite in the repository and rewrites the report this page reads:
+        </p>
+        <pre class="cov-pre">cd infrastructure
+./coverage-report.sh                  # all suites, integration tests included
+./coverage-report.sh --no-integration # skip Testcontainers, no Docker needed
+./coverage-report.sh --skip-tests     # re-aggregate existing reports only</pre>
+        <dl class="kv">
+          <dt>Aggregated metrics</dt>
+          <dd class="mono">{{ r.metrics.join(', ') }}</dd>
+          <dt>Java toolchain</dt>
+          <dd class="mono">{{ r.tools['java'] }}</dd>
+          <dt>Web toolchain</dt>
+          <dd class="mono">{{ r.tools['web'] }}</dd>
+        </dl>
+        <p class="muted" style="margin: 0">
+          Only lines, branches and methods are summed across modules — they are the three
+          dimensions JaCoCo and V8 both measure the same way. Instructions, cyclomatic complexity
+          and statements are reported per module instead, under the package breakdown.
+        </p>
+      </div>
+    </section>
+  }
+</div>
